@@ -1,0 +1,32 @@
+S No,Mentor Name,Mentor Email ID,Mentee Name,Mentee Email,Mentee Ph no,Date,Time,Invite Title,Invitation status,Mentor Confirmation Status,Mentee Confirmation Status,Session Status,Mentor Feedback,Mentee Feedback,Comments,Payment Status
+1,John Smith,john.smith@example.com,Alice Johnson,alice.j@example.com,+1234567890,2024-01-15,10:00 AM,Career Guidance Session,Sent,Confirmed,Confirmed,Completed,4.5,4.8,Great session,Paid
+2,John Smith,john.smith@example.com,Bob Williams,bob.w@example.com,+1234567891,2024-01-16,2:00 PM,MBA Application Review,Sent,Confirmed,Confirmed,Completed,4.2,4.5,Very helpful,Paid
+3,Sarah Davis,sarah.davis@example.com,Charlie Brown,charlie.b@example.com,+1234567892,2024-01-17,11:00 AM,Interview Prep,Sent,Confirmed,Confirmed,Completed,4.9,5.0,Excellent preparation,Paid
+4,Michael Chen,michael.chen@example.com,Diana Miller,diana.m@example.com,+1234567893,2024-01-18,3:00 PM,Resume Review,Sent,Confirmed,Confirmed,Completed,4.7,4.9,Very detailed feedback,Paid
+5,Emily Rodriguez,emily.r@example.com,Eva Martinez,eva.m@example.com,+1234567894,2024-01-19,9:00 AM,Strategy Consulting Tips,Sent,Confirmed,Confirmed,Completed,4.8,4.7,Insightful discussion,Paid
+6,John Smith,john.smith@example.com,Frank Anderson,frank.a@example.com,+1234567895,2024-01-20,1:00 PM,Career Transition,Sent,Confirmed,Cancelled,Cancelled,,,Mentee cancelled,Refunded
+7,Sarah Davis,sarah.davis@example.com,Grace Taylor,grace.t@example.com,+1234567896,2024-01-21,4:00 PM,Case Study Practice,Sent,Confirmed,Confirmed,No-Show,,,Mentee did not attend,Pending
+8,Michael Chen,michael.chen@example.com,Henry Wilson,henry.w@example.com,+1234567897,2024-01-22,10:30 AM,Leadership Development,Sent,Confirmed,Confirmed,Completed,4.6,4.8,Good insights,Paid
+9,Emily Rodriguez,emily.r@example.com,Alice Johnson,alice.j@example.com,+1234567890,2024-01-23,2:30 PM,Follow-up Session,Sent,Confirmed,Confirmed,Completed,4.5,4.9,Continued progress,Paid
+10,David Lee,david.lee@example.com,Isabel Garcia,isabel.g@example.com,+1234567898,2024-01-24,11:30 AM,Finance Career Path,Sent,Confirmed,Confirmed,Completed,4.9,5.0,Outstanding mentor,Paid
+11,John Smith,john.smith@example.com,Jack Thompson,jack.t@example.com,+1234567899,2024-01-25,9:30 AM,Networking Strategies,Sent,Confirmed,Confirmed,Completed,4.3,4.4,Practical advice,Paid
+12,Sarah Davis,sarah.davis@example.com,Bob Williams,bob.w@example.com,+1234567891,2024-01-26,3:30 PM,Second Round Interview Prep,Sent,Confirmed,Confirmed,Completed,4.8,4.9,Well prepared,Paid
+13,Michael Chen,michael.chen@example.com,Karen White,karen.w@example.com,+1234567900,2024-01-27,1:30 PM,Personal Branding,Sent,Confirmed,Confirmed,Completed,4.5,4.6,Very useful,Paid
+14,Emily Rodriguez,emily.r@example.com,Leo Harris,leo.h@example.com,+1234567901,2024-01-28,10:00 AM,Startup vs Corporate,Sent,Confirmed,Confirmed,Rescheduled,,,Rescheduled by mutual agreement,Pending
+15,David Lee,david.lee@example.com,Maria Lopez,maria.l@example.com,+1234567902,2024-01-29,2:00 PM,Investment Banking Path,Sent,Confirmed,Confirmed,Completed,4.8,4.9,Comprehensive overview,Paid
+16,John Smith,john.smith@example.com,Nathan King,nathan.k@example.com,+1234567903,2024-01-30,11:00 AM,Consulting Case Interview,Sent,Confirmed,Confirmed,Completed,4.6,4.7,Good practice,Paid
+17,Sarah Davis,sarah.davis@example.com,Olivia Scott,olivia.s@example.com,+1234567904,2024-01-31,4:00 PM,Career Pivot Discussion,Sent,Confirmed,Confirmed,Completed,4.9,5.0,Life changing advice,Paid
+18,Michael Chen,michael.chen@example.com,Paul Green,paul.g@example.com,+1234567905,2024-02-01,9:00 AM,Tech Industry Insights,Sent,Confirmed,Cancelled,Cancelled,,,Last minute cancellation,Refunded
+19,Emily Rodriguez,emily.r@example.com,Quinn Adams,quinn.a@example.com,+1234567906,2024-02-02,3:00 PM,MBA vs Experience,Sent,Confirmed,Confirmed,Completed,4.7,4.8,Clarified priorities,Paid
+20,David Lee,david.lee@example.com,Rachel Baker,rachel.b@example.com,+1234567907,2024-02-03,1:00 PM,Portfolio Management,Sent,Confirmed,Confirmed,Completed,4.9,5.0,Expert guidance,Paid
+21,John Smith,john.smith@example.com,Sam Cooper,sam.c@example.com,+1234567908,2024-02-04,10:30 AM,Leadership Skills,Sent,Confirmed,Confirmed,Completed,4.4,4.5,Helpful tips,Paid
+22,Sarah Davis,sarah.davis@example.com,Tina Morris,tina.m@example.com,+1234567909,2024-02-05,2:30 PM,Work-Life Balance,Sent,Confirmed,Confirmed,Completed,4.8,4.9,Balanced perspective,Paid
+23,Michael Chen,michael.chen@example.com,Uma Patel,uma.p@example.com,+1234567910,2024-02-06,11:30 AM,Global Career Opportunities,Sent,Confirmed,Confirmed,Completed,4.6,4.7,International insights,Paid
+24,Emily Rodriguez,emily.r@example.com,Victor Reed,victor.r@example.com,+1234567911,2024-02-07,9:30 AM,Entrepreneurship Path,Sent,Confirmed,Confirmed,No-Show,,,No communication,Pending
+25,David Lee,david.lee@example.com,Wendy Turner,wendy.t@example.com,+1234567912,2024-02-08,3:30 PM,Financial Modeling,Sent,Confirmed,Confirmed,Completed,4.9,5.0,Excellent technical session,Paid
+26,John Smith,john.smith@example.com,Xavier Bell,xavier.b@example.com,+1234567913,2024-02-09,1:30 PM,Executive Presence,Sent,Confirmed,Confirmed,Completed,4.5,4.6,Professional development,Paid
+27,Sarah Davis,sarah.davis@example.com,Yara Foster,yara.f@example.com,+1234567914,2024-02-10,10:00 AM,Market Research Career,Sent,Confirmed,Confirmed,Completed,4.8,4.9,Detailed industry info,Paid
+28,Michael Chen,michael.chen@example.com,Zoe Hughes,zoe.h@example.com,+1234567915,2024-02-11,2:00 PM,Product Management,Sent,Confirmed,Confirmed,Completed,4.7,4.8,PM framework helpful,Paid
+29,Emily Rodriguez,emily.r@example.com,Alice Johnson,alice.j@example.com,+1234567890,2024-02-12,11:00 AM,Final Round Prep,Sent,Confirmed,Confirmed,Completed,4.9,5.0,Secured the offer!,Paid
+30,David Lee,david.lee@example.com,Bob Williams,bob.w@example.com,+1234567891,2024-02-13,4:00 PM,Salary Negotiation,Sent,Confirmed,Confirmed,Completed,4.8,4.9,Got a better offer!,Paid
+
