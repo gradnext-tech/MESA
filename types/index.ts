@@ -1,7 +1,7 @@
 // Data types based on spreadsheet structure
 
 export interface Session {
-  sNo: number;
+  sNo: number | null; // Can be null if not provided in sheet
   mentorName: string;
   mentorEmail: string;
   menteeName: string;
@@ -41,9 +41,9 @@ export interface Mentee {
   name: string;
   phoneNumber: string;
   email: string;
-  occupation: string;
-  organisation: string;
   linkedin: string;
+  minor1: string;
+  minor2: string;
 }
 
 export interface SpreadsheetData {
@@ -73,9 +73,13 @@ export interface MenteeMetrics {
   avgSessionsPerCandidateTotal: number;
   avgSessionsPerCandidateActive: number;
   avgFeedbackScore: number;
-  top10PercentFeedback: number;
-  top25PercentFeedback: number;
-  top50PercentFeedback: number;
+  avgSessionsPerWeek: number;
+  avgRatingPerWeek: number;
+  top10BySessions: CandidateSessionStats[];
+  top10ByRating: CandidateSessionStats[];
+  bottom10Feedback: CandidateSessionStats[];
+  bottom25Feedback: CandidateSessionStats[];
+  candidatesNoSessions: Mentee[];
   totalSessionsCancelled: number;
   totalNoShows: number;
   candidatesCancelled: number;

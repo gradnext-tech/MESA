@@ -47,31 +47,127 @@ export async function fetchSheetData(
   try {
     const sheets = getGoogleSheetsClient();
 
+    // First, get the list of sheets to find the exact sheet name (handles case sensitivity and exact matching)
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId,
+    });
+
+    const sheet = spreadsheet.data.sheets?.find(
+      (s) => s.properties?.title?.toLowerCase() === sheetName.toLowerCase()
+    );
+
+    if (!sheet || !sheet.properties?.title) {
+      const availableSheets = spreadsheet.data.sheets?.map(s => s.properties?.title).join(', ') || 'none';
+      console.error(`❌ Sheet "${sheetName}" not found in spreadsheet. Available sheets: ${availableSheets}`);
+      return [];
+    }
+    
+    console.log(`✅ Found sheet: "${sheet.properties.title}" (requested: "${sheetName}")`);
+
+    // Use the exact sheet name from the spreadsheet (preserves case and any special characters)
+    const exactSheetName = sheet.properties.title;
+    
+    // Google Sheets API: sheet names with spaces need to be wrapped in single quotes
+    // Escape single quotes in the sheet name by doubling them
+    // Use A:ZZ to cover more columns (up to column ZZ)
+    let range: string;
+    if (exactSheetName.includes(' ') || exactSheetName.includes("'") || exactSheetName.includes('!')) {
+      // Escape single quotes by doubling them, then wrap in single quotes
+      const escapedName = exactSheetName.replace(/'/g, "''");
+      range = `'${escapedName}'!A:ZZ`;
+    } else {
+      range = `${exactSheetName}!A:ZZ`;
+    }
+
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!A:Z`, // Adjust range as needed
+      range: range,
     });
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
+      console.log(`No rows found for sheet: ${sheetName}`);
       return [];
     }
 
     // First row is headers
     const headers = rows[0];
+    if (!headers || headers.length === 0) {
+      console.log(`No headers found for sheet: ${sheetName}`);
+      return [];
+    }
+
+    console.log(`Processing ${rows.length - 1} data rows for sheet: ${sheetName}`);
     const data: SheetData[] = [];
 
+    // For Google Forms responses, skip metadata rows (like "Responder Link", "Edit Link")
+    // Find the actual header row - it should contain column names like "Mentor Name", "Session Date", etc.
+    let headerRowIndex = 0;
+    let actualHeaders = headers;
+    
+    // Check if first row looks like metadata (contains "Link" or "Edit")
+    if (rows.length > 0 && headers.length > 0) {
+      const firstRowKeys = headers.map(h => String(h).toLowerCase());
+      const hasMetadataKeys = firstRowKeys.some(k => k.includes('link') || k.includes('edit') || k.includes('responder'));
+      
+      if (hasMetadataKeys && rows.length > 1) {
+        // The actual headers are likely in the second row
+        headerRowIndex = 1;
+        actualHeaders = rows[1].map((cell: any) => String(cell || '').trim());
+        console.log(`Skipping metadata row, using row ${headerRowIndex + 1} as headers for sheet: ${sheetName}`);
+        console.log(`Actual headers:`, actualHeaders);
+      }
+    }
+
     // Convert rows to objects using headers as keys
-    for (let i = 1; i < rows.length; i++) {
+    // Start from after the header row
+    const dataStartIndex = headerRowIndex + 1;
+    for (let i = dataStartIndex; i < rows.length; i++) {
       const row = rows[i];
+      
+      // Skip completely empty rows
+      if (!row || row.length === 0 || row.every((cell: any) => {
+        if (cell === undefined || cell === null) return true;
+        if (typeof cell === 'string' && cell.trim() === '') return true;
+        return false;
+      })) {
+        continue;
+      }
+      
+      // Create a fresh object for each row to avoid reference issues
       const rowData: SheetData = {};
 
-      headers.forEach((header, index) => {
-        rowData[header] = row[index] || '';
+      // Map each header to its corresponding cell value
+      actualHeaders.forEach((header, index) => {
+        if (header && String(header).trim() !== '') {
+          // Get the actual cell value for this row
+          const cellValue = row[index];
+          
+          // Convert to string and trim, or use empty string if null/undefined
+          if (cellValue !== undefined && cellValue !== null) {
+            const stringValue = String(cellValue).trim();
+            rowData[String(header)] = stringValue;
+          } else {
+            rowData[String(header)] = '';
+          }
+        }
       });
 
-      data.push(rowData);
+      // Only add row if it has at least one non-empty value
+      const hasData = Object.values(rowData).some(value => {
+        if (typeof value === 'string') {
+          return value.trim() !== '';
+        }
+        return value !== null && value !== undefined && value !== '';
+      });
+      
+      if (hasData) {
+        data.push(rowData);
+      }
     }
+
+    console.log(`Successfully parsed ${data.length} rows from sheet: ${sheetName}`);
+    return data;
 
     return data;
   } catch (error) {
@@ -81,18 +177,56 @@ export async function fetchSheetData(
 }
 
 /**
- * Fetch all required sheets (Sessions, Mentor Directory, Mentee Directory)
+ * Fetch all required sheets from two different spreadsheets
+ * @param sessionsSpreadsheetId - Spreadsheet ID for sessions (contains "Mesa tracker" sheet)
+ * @param feedbacksSpreadsheetId - Spreadsheet ID for feedbacks (contains feedback sheets)
  */
-export async function fetchAllSheets(spreadsheetId: string) {
+export async function fetchAllSheets(
+  sessionsSpreadsheetId: string,
+  feedbacksSpreadsheetId?: string
+) {
   try {
-    const [sessions, mentors, mentees] = await Promise.all([
-      fetchSheetData(spreadsheetId, 'Sessions'),
-      fetchSheetData(spreadsheetId, 'Mentor Directory').catch(() => []),
-      fetchSheetData(spreadsheetId, 'Mentee Directory').catch(() => []),
-    ]);
+    // Fetch session data from first spreadsheet
+    const sessions = await fetchSheetData(sessionsSpreadsheetId, 'Mesa tracker');
+
+    // Fetch feedback data and directories from second spreadsheet if provided
+    let mentorFeedbacks: SheetData[] = [];
+    let candidateFeedbacks: SheetData[] = [];
+    let mentors: SheetData[] = [];
+    let mentees: SheetData[] = [];
+
+    if (feedbacksSpreadsheetId) {
+      [mentorFeedbacks, candidateFeedbacks, mentors, mentees] = await Promise.all([
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').catch((err) => {
+          console.error('Error fetching Mentor Feedbacks:', err.message);
+          return [];
+        }),
+        fetchSheetData(feedbacksSpreadsheetId, 'Candidate Feedback').catch((err) => {
+          console.error('Error fetching Candidate Feedback:', err.message);
+          return [];
+        }),
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentor directory').catch((err) => {
+          console.error('Error fetching Mentor directory:', err.message);
+          return [];
+        }),
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentee Directory').catch((err) => {
+          console.error('Error fetching Mentee Directory:', err.message);
+          return [];
+        }),
+      ]);
+      
+      console.log('Fetched data counts:', {
+        mentorFeedbacks: mentorFeedbacks.length,
+        candidateFeedbacks: candidateFeedbacks.length,
+        mentors: mentors.length,
+        mentees: mentees.length
+      });
+    }
 
     return {
       sessions,
+      mentorFeedbacks, // Feedback from mentees about mentors
+      candidateFeedbacks, // Feedback from mentors about mentees
       mentors,
       mentees,
     };

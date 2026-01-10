@@ -3,17 +3,29 @@
 import React, { useState } from 'react';
 import { GoogleSheetsAutoConnect } from '@/components/GoogleSheetsAutoConnect';
 import { useData } from '@/context/DataContext';
-import { parseSpreadsheetData } from '@/utils/metricsCalculator';
+import { parseSpreadsheetData, parseMenteeData } from '@/utils/metricsCalculator';
 import { CheckCircle, TrendingUp, Users, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
-  const { sessions, setSessions, hasData } = useData();
+  const { sessions, setSessions, hasData, mentees, setMentees } = useData();
   const [autoConnecting, setAutoConnecting] = useState(true);
+  const hasLoadedRef = React.useRef(false);
 
-  const handleDataLoaded = (data: any[]) => {
-    const parsedSessions = parseSpreadsheetData(data);
+  const handleDataLoaded = (data: { 
+    sessions: any[]; 
+    mentorFeedbacks?: any[]; 
+    candidateFeedbacks?: any[];
+    mentees?: any[];
+  }) => {
+    const parsedSessions = parseSpreadsheetData(
+      data.sessions, 
+      data.mentorFeedbacks, 
+      data.candidateFeedbacks
+    );
+    const parsedMentees = parseMenteeData(data.mentees || []);
     setSessions(parsedSessions);
+    setMentees(parsedMentees);
     setAutoConnecting(false);
   };
 
@@ -21,8 +33,23 @@ export default function Home() {
     setAutoConnecting(false);
   };
 
-  // Auto-connect on component mount
+  // Auto-connect on component mount ONLY if data is not already loaded
   React.useEffect(() => {
+    // If we've already attempted to load, don't reload
+    if (hasLoadedRef.current) {
+      return;
+    }
+
+    // If data is already loaded, don't reload
+    if (hasData && sessions.length > 0) {
+      setAutoConnecting(false);
+      hasLoadedRef.current = true;
+      return;
+    }
+
+    // Mark that we're attempting to load
+    hasLoadedRef.current = true;
+
     const autoConnect = async () => {
       try {
         const response = await fetch('/api/sheets', {
@@ -36,7 +63,12 @@ export default function Home() {
         const result = await response.json();
 
         if (response.ok && result.success && result.data.sessions) {
-          handleDataLoaded(result.data.sessions);
+          handleDataLoaded({
+            sessions: result.data.sessions,
+            mentorFeedbacks: result.data.mentorFeedbacks || [],
+            candidateFeedbacks: result.data.candidateFeedbacks || [],
+            mentees: result.data.mentees || [],
+          });
         } else {
           console.warn('Auto-connect failed:', result.error);
           setAutoConnecting(false);
@@ -48,16 +80,16 @@ export default function Home() {
     };
 
     autoConnect();
-  }, []);
+  }, [hasData, sessions.length, setSessions, setMentees]); // Include all dependencies
 
   return (
     <div className="space-y-8">
       {/* Hero Section */}
       <div className="text-center space-y-4">
-        <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-          MESA Dashboard
+        <h1 className="text-4xl md:text-5xl font-bold text-white">
+          Mesa Dashboard
         </h1>
-        <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+        <p className="text-lg text-gray-300 max-w-2xl mx-auto">
           Comprehensive analytics platform for mentorship sessions. Connect your Google Sheets to view detailed insights on mentors and mentees.
         </p>
       </div>
@@ -65,14 +97,14 @@ export default function Home() {
       {/* Auto-Connection Status */}
       {autoConnecting && (
         <div className="max-w-2xl mx-auto mb-8">
-          <div className="bg-blue-50 rounded-xl p-6 border border-blue-200 text-center">
+          <div className="rounded-xl p-6 border text-center" style={{ backgroundColor: '#2A4A4A', borderColor: '#22C55E' }}>
             <div className="flex items-center justify-center mb-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#22C55E' }}></div>
             </div>
-            <h3 className="text-lg font-semibold text-blue-900 mb-2">
+            <h3 className="text-lg font-semibold text-white mb-2">
               Connecting to Google Sheets...
             </h3>
-            <p className="text-blue-700">
+            <p className="text-gray-300">
               Automatically loading your mentorship data
             </p>
           </div>
@@ -92,24 +124,30 @@ export default function Home() {
       {/* Success State */}
       {hasData && (
         <div className="max-w-2xl mx-auto">
-          <div className="mt-6 p-6 bg-blue-50 border border-blue-200 rounded-xl">
-            <h3 className="text-lg font-semibold text-blue-900 mb-2">
+          <div className="mt-6 p-6 border rounded-xl" style={{ backgroundColor: '#2A4A4A', borderColor: '#22C55E' }}>
+            <h3 className="text-lg font-semibold text-white mb-2">
               Data Loaded Successfully
             </h3>
-            <p className="text-blue-700 mb-4">
+            <p className="text-gray-300 mb-4">
               {sessions.length} sessions available for analysis
             </p>
             <div className="flex gap-4">
               <Link
                 href="/mentor-dashboard"
-                className="flex-1 flex items-center justify-center px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-md hover:shadow-lg"
+                className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                style={{ backgroundColor: '#22C55E' }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#16A34A'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#22C55E'}
               >
                 <UserCheck className="w-5 h-5 mr-2" />
                 View Mentor Dashboard
               </Link>
               <Link
                 href="/mentee-dashboard"
-                className="flex-1 flex items-center justify-center px-4 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all duration-200 shadow-md hover:shadow-lg"
+                className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                style={{ backgroundColor: '#CAE8A0', color: '#1A3636' }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#B8D88A'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#CAE8A0'}
               >
                 <Users className="w-5 h-5 mr-2" />
                 View Mentee Dashboard
@@ -121,27 +159,27 @@ export default function Home() {
 
       {/* Features Grid */}
       <div className="grid md:grid-cols-2 gap-6 mt-12">
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
-          <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center mb-4">
+        <div className="rounded-xl p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ backgroundColor: '#22C55E' }}>
             <UserCheck className="w-6 h-6 text-white" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">
+          <h3 className="text-xl font-bold text-white mb-2">
             Mentor Analytics
           </h3>
-          <p className="text-gray-700">
+          <p className="text-gray-300">
             Track mentor performance with metrics like average ratings, sessions completed, 
             cancellations, and feedback statistics.
           </p>
         </div>
 
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
-          <div className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center mb-4">
+        <div className="rounded-xl p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ backgroundColor: '#22C55E' }}>
             <Users className="w-6 h-6 text-white" />
           </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">
+          <h3 className="text-xl font-bold text-white mb-2">
             Mentee Insights
           </h3>
-          <p className="text-gray-700">
+          <p className="text-gray-300">
             Analyze mentee engagement with session statistics, candidate behavior, 
             feedback scores, and performance percentiles.
           </p>
@@ -150,11 +188,11 @@ export default function Home() {
 
       {/* Instructions */}
       {!hasData && (
-        <div className="max-w-2xl mx-auto mt-8 p-6 bg-gray-50 rounded-xl border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">
+        <div className="max-w-2xl mx-auto mt-8 p-6 rounded-xl border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <h3 className="text-lg font-semibold text-white mb-3">
             Getting Started
           </h3>
-          <ol className="space-y-2 text-gray-700">
+          <ol className="space-y-2 text-gray-300">
             <li className="flex items-start">
               <span className="font-semibold mr-2">1.</span>
               <span>Make sure your Google Sheet has a "Sessions" sheet with all required columns</span>

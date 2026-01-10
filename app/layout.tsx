@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MESA Dashboard - Mentor & Mentee Analytics",
-  description: "Analytics dashboard for MESA mentorship program",
+  title: "Mesa Dashboard - Mentor & Mentee Analytics",
+  description: "Analytics dashboard for Mesa mentorship program",
 };
 
 export default function RootLayout({

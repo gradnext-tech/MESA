@@ -4,17 +4,20 @@ import { fetchAllSheets, validateSheetsAccess } from '@/lib/googleSheets';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { action, spreadsheetId: bodySpreadsheetId } = body;
+    const { action, sessionsSpreadsheetId: bodySessionsId, feedbacksSpreadsheetId: bodyFeedbacksId } = body;
 
     // Prefer server env; allow optional override from body if explicitly provided
-    const spreadsheetId =
-      process.env.GOOGLE_SPREADSHEET_ID?.trim() || bodySpreadsheetId?.trim();
+    const sessionsSpreadsheetId =
+      process.env.GOOGLE_SPREADSHEET_ID?.trim() || bodySessionsId?.trim();
+    
+    const feedbacksSpreadsheetId =
+      process.env.GOOGLE_FEEDBACKS_SPREADSHEET_ID?.trim() || bodyFeedbacksId?.trim();
 
-    if (!spreadsheetId) {
+    if (!sessionsSpreadsheetId) {
       return NextResponse.json(
         {
           error:
-            'GOOGLE_SPREADSHEET_ID is not configured. Add it to your environment variables or provide a spreadsheetId in the request body.',
+            'GOOGLE_SPREADSHEET_ID is not configured. Add it to your environment variables or provide a sessionsSpreadsheetId in the request body.',
         },
         { status: 500 }
       );
@@ -30,16 +33,26 @@ export async function POST(request: NextRequest) {
 
     // Handle different actions
     if (action === 'validate') {
-      const isValid = await validateSheetsAccess(spreadsheetId);
-      return NextResponse.json({ valid: isValid, spreadsheetId });
+      const isValid = await validateSheetsAccess(sessionsSpreadsheetId);
+      const feedbacksValid = feedbacksSpreadsheetId 
+        ? await validateSheetsAccess(feedbacksSpreadsheetId).catch(() => false)
+        : false;
+      
+      return NextResponse.json({ 
+        valid: isValid, 
+        sessionsSpreadsheetId,
+        feedbacksValid,
+        feedbacksSpreadsheetId: feedbacksSpreadsheetId || null,
+      });
     }
 
-    // Fetch all sheets data
-    const data = await fetchAllSheets(spreadsheetId);
+    // Fetch all sheets data from both spreadsheets
+    const data = await fetchAllSheets(sessionsSpreadsheetId, feedbacksSpreadsheetId);
 
     return NextResponse.json({
       success: true,
-      spreadsheetId,
+      sessionsSpreadsheetId,
+      feedbacksSpreadsheetId: feedbacksSpreadsheetId || null,
       data,
     });
   } catch (error: any) {

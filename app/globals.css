@@ -3,18 +3,29 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Client website color palette */
+  --dark-teal: #1A3636;
+  --dark-teal-light: #2A4A4A;
+  --vibrant-green: #22C55E;
+  --light-green: #86EFAC;
+  --yellow-green: #CAE8A0;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-dark-teal: var(--dark-teal);
+  --color-dark-teal-light: var(--dark-teal-light);
+  --color-vibrant-green: var(--vibrant-green);
+  --color-light-green: var(--light-green);
+  --color-yellow-green: var(--yellow-green);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
+    --background: #1A3636;
     --foreground: #ededed;
   }
 }
