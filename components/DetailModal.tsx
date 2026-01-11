@@ -430,7 +430,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                             {type === 'mentor' ? session.menteeName : session.mentorName}
                           </p>
                         </div>
-                        {isValidRating && (
+                        {isValidRating && feedbackValue !== null && (
                           <div className="flex items-center space-x-1">
                             <Star className="w-4 h-4 text-[#86EFAC]" />
                             <span className="text-sm font-semibold text-white">{feedbackValue.toFixed(1)}</span>
