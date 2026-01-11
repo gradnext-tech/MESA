@@ -130,10 +130,12 @@ export const DetailModal: React.FC<DetailModalProps> = ({
       .map(s => {
         let hasFeedback = false;
         if (type === 'mentor') {
-          hasFeedback = s.menteeFeedback && s.menteeFeedback !== '' && s.menteeFeedback !== 'N/A';
+          const feedbackValue = String(s.menteeFeedback || '');
+          hasFeedback = feedbackValue !== '' && feedbackValue !== 'N/A' && feedbackValue !== 'null' && feedbackValue !== 'undefined';
         } else {
           // For mentees, check both session.mentorFeedback and candidateFeedbacks
-          if (s.mentorFeedback && s.mentorFeedback !== '' && s.mentorFeedback !== 'N/A') {
+          const feedbackValue = String(s.mentorFeedback || '');
+          if (feedbackValue !== '' && feedbackValue !== 'N/A' && feedbackValue !== 'null' && feedbackValue !== 'undefined') {
             hasFeedback = true;
           } else if (candidateFeedbacks && candidateFeedbacks.length > 0) {
             const matchedFeedback = getSessionFeedbackFromSheet(s);
