@@ -821,7 +821,7 @@ export function calculateMentorSessionStats(
   sessions: Session[],
   weekFilter?: Date,
   monthFilter?: string, // Format: YYYY-MM
-  mentorEmailFilter?: string
+  mentorEmailFilter?: string | string[]
 ): MentorSessionStats[] {
   let filteredSessions = sessions;
 
@@ -869,15 +869,18 @@ export function calculateMentorSessionStats(
   // Store original sessions before mentor filtering (needed for mentor info lookup)
   const originalSessions = sessions;
 
-  // Filter by mentor if provided
+  // Filter by mentor if provided (handle both string and string[])
   if (mentorEmailFilter) {
-    const normalizedFilterEmail = mentorEmailFilter.trim().toLowerCase();
+    const filterEmails = Array.isArray(mentorEmailFilter) 
+      ? mentorEmailFilter.map(e => e.trim().toLowerCase())
+      : [mentorEmailFilter.trim().toLowerCase()];
+    
     const beforeFilterCount = filteredSessions.length;
     filteredSessions = filteredSessions.filter(s => {
       const sessionEmail = (s.mentorEmail || '').trim().toLowerCase();
-      return sessionEmail === normalizedFilterEmail;
+      return filterEmails.includes(sessionEmail);
     });
-    console.log(`Mentor filter applied: ${mentorEmailFilter}, Sessions before: ${beforeFilterCount}, Sessions after: ${filteredSessions.length}`);
+    console.log(`Mentor filter applied: ${Array.isArray(mentorEmailFilter) ? mentorEmailFilter.join(', ') : mentorEmailFilter}, Sessions before: ${beforeFilterCount}, Sessions after: ${filteredSessions.length}`);
   }
 
   // Group by mentor - use email as key, but ensure we have valid email
@@ -886,36 +889,41 @@ export function calculateMentorSessionStats(
   // If mentor filter is applied, pre-populate the map with that mentor's info
   // This ensures we have an entry even if no sessions match after date filtering
   if (mentorEmailFilter) {
-    const normalizedFilterEmail = mentorEmailFilter.trim().toLowerCase();
-    // Try to find the mentor's info from all sessions (not just filtered)
-    const mentorSession = originalSessions.find(s => 
-      (s.mentorEmail || '').trim().toLowerCase() === normalizedFilterEmail
-    );
+    const filterEmails = Array.isArray(mentorEmailFilter) 
+      ? mentorEmailFilter.map(e => e.trim().toLowerCase())
+      : [mentorEmailFilter.trim().toLowerCase()];
     
-    if (mentorSession) {
-      // Use normalized email as key for consistent matching
-      const emailKey = (mentorSession.mentorEmail || '').trim().toLowerCase();
-      // But preserve original email format in the result
-      const originalEmail = mentorSession.mentorEmail || mentorEmailFilter;
-      // Pre-create entry with zeros - will be updated if sessions are found
-      mentorMap.set(emailKey, {
-        mentorName: mentorSession.mentorName || originalEmail || 'Unknown',
-        mentorEmail: originalEmail, // Use original email format
-        totalScheduled: 0,
-        completed: 0,
-        cancelled: 0,
-        mentorNoShow: 0,
-        rescheduled: 0,
-        pending: 0,
-        menteeNoShow: 0,
-        avgRating: 0,
-        feedbacksNotFilled: 0,
-      });
-      console.log(`Pre-created entry for mentor: ${mentorSession.mentorName} (${originalEmail}), key: ${emailKey}`);
-    } else {
-      console.warn(`Mentor not found in sessions: ${mentorEmailFilter}`);
-      console.log('Available mentor emails:', [...new Set(originalSessions.map(s => s.mentorEmail).filter(Boolean))].slice(0, 5));
-    }
+    filterEmails.forEach(normalizedFilterEmail => {
+      // Try to find the mentor's info from all sessions (not just filtered)
+      const mentorSession = originalSessions.find(s => 
+        (s.mentorEmail || '').trim().toLowerCase() === normalizedFilterEmail
+      );
+      
+      if (mentorSession) {
+        // Use normalized email as key for consistent matching
+        const emailKey = (mentorSession.mentorEmail || '').trim().toLowerCase();
+        // But preserve original email format in the result
+        const originalEmail = mentorSession.mentorEmail || normalizedFilterEmail;
+        // Pre-create entry with zeros - will be updated if sessions are found
+        mentorMap.set(emailKey, {
+          mentorName: mentorSession.mentorName || originalEmail || 'Unknown',
+          mentorEmail: originalEmail, // Use original email format
+          totalScheduled: 0,
+          completed: 0,
+          cancelled: 0,
+          mentorNoShow: 0,
+          rescheduled: 0,
+          pending: 0,
+          menteeNoShow: 0,
+          avgRating: 0,
+          feedbacksNotFilled: 0,
+        });
+        console.log(`Pre-created entry for mentor: ${mentorSession.mentorName} (${originalEmail}), key: ${emailKey}`);
+      } else {
+        console.warn(`Mentor not found in sessions: ${normalizedFilterEmail}`);
+        console.log('Available mentor emails:', [...new Set(originalSessions.map(s => s.mentorEmail).filter(Boolean))].slice(0, 5));
+      }
+    });
   }
 
   filteredSessions.forEach((session) => {
