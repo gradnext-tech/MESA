@@ -409,6 +409,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     }
                   }
 
+                  // Format feedback value as string to avoid type issues
+                  const feedbackDisplay = (isValidRating && feedbackValue !== null) 
+                    ? feedbackValue.toFixed(1) 
+                    : null;
+
                   return (
                     <div
                       key={index}
@@ -430,10 +435,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                             {type === 'mentor' ? session.menteeName : session.mentorName}
                           </p>
                         </div>
-                        {isValidRating && feedbackValue !== null && (
+                        {feedbackDisplay !== null && (
                           <div className="flex items-center space-x-1">
                             <Star className="w-4 h-4 text-[#86EFAC]" />
-                            <span className="text-sm font-semibold text-white">{feedbackValue.toFixed(1)}</span>
+                            <span className="text-sm font-semibold text-white">{feedbackDisplay}</span>
                           </div>
                         )}
                       </div>
@@ -502,6 +507,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       }
                     }
 
+                    // Format feedback value as string to avoid type issues
+                    const feedbackDisplay = (isValidRating && feedbackValue !== null) 
+                      ? feedbackValue.toFixed(1) 
+                      : null;
+
                     return (
                       <tr
                         key={index}
@@ -532,10 +542,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           </div>
                         </td>
                         <td className="px-4 py-2">
-                          {isValidRating ? (
+                          {feedbackDisplay !== null ? (
                             <div className="flex items-center space-x-1">
                               <Star className="w-4 h-4 text-[#86EFAC]" />
-                              <span className="text-sm text-white">{feedbackValue.toFixed(1)}</span>
+                              <span className="text-sm text-white">{feedbackDisplay}</span>
                             </div>
                           ) : (
                             <span className="text-sm text-gray-400">N/A</span>
