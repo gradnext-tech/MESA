@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Search,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
 import Link from 'next/link';
@@ -30,6 +31,123 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
+// Multi-select component for mentors
+const MentorMultiSelect: React.FC<{
+  mentors: Array<{ email: string; name: string }>;
+  selectedMentors: string[];
+  onChange: (selected: string[]) => void;
+}> = ({ mentors, selectedMentors, onChange }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const handleToggle = (email: string) => {
+    if (selectedMentors.includes(email)) {
+      onChange(selectedMentors.filter(e => e !== email));
+    } else {
+      onChange([...selectedMentors, email]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    onChange([]);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <div
+        className="px-3 py-2 border rounded-lg text-sm cursor-pointer flex items-center justify-between min-w-[200px]"
+        style={{ backgroundColor: '#2A4A4A', borderColor: isOpen ? '#22C55E' : '#3A5A5A', color: '#fff' }}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className="text-sm">
+          {selectedMentors.length === 0 
+            ? 'All Mentors' 
+            : selectedMentors.length === 1
+            ? mentors.find(m => m.email === selectedMentors[0])?.name || '1 mentor'
+            : `${selectedMentors.length} mentors`}
+        </span>
+        <span className="text-gray-400">▼</span>
+      </div>
+      {isOpen && (
+        <div
+          className="absolute z-50 mt-1 w-full max-h-60 overflow-auto border rounded-lg shadow-lg"
+          style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}
+        >
+          <div className="p-2 border-b" style={{ borderColor: '#3A5A5A' }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-gray-300">Select Mentors</span>
+              {selectedMentors.length > 0 && (
+                <button
+                  onClick={handleSelectAll}
+                  className="text-xs text-gray-400 hover:text-white"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+            <label className="flex items-center gap-2 p-1 hover:bg-[#1A3636] rounded cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedMentors.length === 0}
+                onChange={handleSelectAll}
+                className="w-4 h-4 rounded"
+                style={{ accentColor: '#22C55E' }}
+              />
+              <span className="text-sm text-white">All Mentors</span>
+            </label>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {mentors.map((mentor) => (
+              <label
+                key={mentor.email}
+                className="flex items-center gap-2 p-2 hover:bg-[#1A3636] cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedMentors.includes(mentor.email)}
+                  onChange={() => handleToggle(mentor.email)}
+                  className="w-4 h-4 rounded"
+                  style={{ accentColor: '#22C55E' }}
+                />
+                <div className="flex-1">
+                  <span className="text-sm text-white">{mentor.name}</span>
+                  <p className="text-xs text-gray-400 truncate">{mentor.email}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {selectedMentors.length > 0 && (
+        <button
+          onClick={() => onChange([])}
+          className="ml-2 text-xs text-gray-400 hover:text-white px-2"
+          title="Clear mentor filter"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+};
+
 // Helper function to convert Date to week input value (YYYY-Www format, ISO week)
 // HTML5 week input uses ISO 8601 week format
 function getWeekInputValue(date: Date): string {
@@ -37,36 +155,68 @@ function getWeekInputValue(date: Date): string {
   const weekStart = startOfWeek(date, { weekStartsOn: 1 }); // Monday
   const year = weekStart.getFullYear();
   
-  // Calculate ISO week number
+  // Calculate ISO 8601 week number
+  // ISO week: week 1 is the week containing Jan 4
   const jan4 = new Date(year, 0, 4);
   const jan4Day = jan4.getDay() || 7; // Convert Sunday (0) to 7
-  const daysToMonday = (8 - jan4Day) % 7;
-  const firstMonday = new Date(year, 0, 4 + daysToMonday);
-  const weekNum = Math.ceil(((+weekStart - +firstMonday) / 86400000 + 1) / 7);
+  
+  // Find the Monday of week 1 (same logic as getDateFromWeek)
+  // Calculate days to go back to get to Monday
+  const daysToMonday = (jan4Day === 1) ? 0 : (jan4Day - 1);
+  const firstMonday = new Date(year, 0, 4 - daysToMonday);
+  
+  // Calculate week number
+  const diffInDays = Math.floor((weekStart.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24));
+  const weekNum = Math.floor(diffInDays / 7) + 1;
+  
+  // Handle edge case: if week is 0 or negative, it belongs to previous year
+  if (weekNum < 1) {
+    const prevYear = year - 1;
+    const prevJan4 = new Date(prevYear, 0, 4);
+    const prevJan4Day = prevJan4.getDay() || 7;
+    const prevDaysToMonday = (prevJan4Day === 1) ? 0 : (prevJan4Day - 1);
+    const prevFirstMonday = new Date(prevYear, 0, 4 - prevDaysToMonday);
+    const prevDiffInDays = Math.floor((weekStart.getTime() - prevFirstMonday.getTime()) / (1000 * 60 * 60 * 24));
+    const prevWeekNum = Math.floor(prevDiffInDays / 7) + 1;
+    return `${prevYear}-W${prevWeekNum.toString().padStart(2, '0')}`;
+  }
   
   return `${year}-W${weekNum.toString().padStart(2, '0')}`;
 }
 
 // Helper function to get date from year and week number (ISO week format)
 function getDateFromWeek(year: number, week: number): Date {
-  // Calculate the date for the Monday of the given ISO week
+  // ISO 8601 week: week 1 is the week containing Jan 4
+  // Calculate the first Thursday of the year (which is always in week 1)
   const jan4 = new Date(year, 0, 4);
   const jan4Day = jan4.getDay() || 7; // Convert Sunday (0) to 7
+  
+  // Find the Monday of week 1
+  // If Jan 4 is Monday (1), daysToMonday = 0
+  // If Jan 4 is Tuesday (2), daysToMonday = 6 (go back 6 days)
+  // etc.
   const daysToMonday = (8 - jan4Day) % 7;
-  const firstMonday = new Date(year, 0, 4 + daysToMonday);
+  const firstMonday = new Date(year, 0, 4 - daysToMonday);
+  
+  // Calculate the Monday of the requested week
+  // Week 1 starts at firstMonday, week 2 starts 7 days later, etc.
   const weekStart = new Date(firstMonday);
   weekStart.setDate(firstMonday.getDate() + (week - 1) * 7);
+  
+  // Set to start of day to avoid timezone issues
+  weekStart.setHours(0, 0, 0, 0);
   return weekStart;
 }
 
 export default function MentorDashboard() {
-  const { sessions, hasData, setSessions } = useData();
+  const { sessions, hasData, setSessions, setMentees } = useData();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedMentor, setSelectedMentor] = useState<MentorMetrics | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [weekFilter, setWeekFilter] = useState<Date | undefined>(undefined);
   const [monthFilter, setMonthFilter] = useState<string>(''); // Format: YYYY-MM
-  const [selectedMentorFilter, setSelectedMentorFilter] = useState<string>('');
+  const [selectedMentorFilter, setSelectedMentorFilter] = useState<string[]>([]); // Multi-select: array of emails
 
   // Auto-fetch data if not available (when navigating directly to this page)
   React.useEffect(() => {
@@ -101,23 +251,11 @@ export default function MentorDashboard() {
     }
   }, [hasData]);
 
-  // Debug logging
-  React.useEffect(() => {
-    console.log('Mentor Dashboard - sessions count:', sessions.length);
-    console.log('Mentor Dashboard - hasData:', hasData);
-    if (sessions.length > 0) {
-      console.log('Mentor Dashboard - first session:', sessions[0]);
-      console.log('Mentor Dashboard - sessions with mentorEmail:', sessions.filter(s => s.mentorEmail).length);
-    }
-  }, [sessions, hasData]);
-
   const mentorMetrics = useMemo(() => {
     if (!hasData) {
-      console.log('Mentor Dashboard - No data, returning empty array');
       return [];
     }
     const metrics = calculateMentorMetrics(sessions);
-    console.log('Mentor Dashboard - Calculated metrics:', metrics.length);
     return metrics;
   }, [sessions, hasData]);
 
@@ -145,6 +283,37 @@ export default function MentorDashboard() {
     if (!selectedMentor) return [];
     return sessions.filter(s => s.mentorEmail === selectedMentor.mentorEmail);
   }, [selectedMentor, sessions]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const response = await fetch('/api/sheets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success && result.data.sessions) {
+        const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+        const parsedSessions = parseSpreadsheetData(
+          result.data.sessions,
+          result.data.mentorFeedbacks || [],
+          result.data.candidateFeedbacks || []
+        );
+        const parsedMentees = parseMenteeData(result.data.mentees || []);
+        setSessions(parsedSessions);
+        setMentees(parsedMentees);
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Aggregate metrics
   const aggregateMetrics = useMemo(() => {
@@ -222,13 +391,9 @@ export default function MentorDashboard() {
   // Calculate mentor session statistics with filters
   const mentorSessionStats = useMemo(() => {
     if (!hasData) return [];
-    console.log('Calculating mentorSessionStats with filters:', {
-      sessionsCount: sessions.length,
-      weekFilter: weekFilter?.toISOString(),
-      monthFilter,
-      selectedMentorFilter
-    });
-    return calculateMentorSessionStats(sessions, weekFilter, monthFilter || undefined, selectedMentorFilter || undefined);
+    // Pass array directly - function now handles both array and string
+    const mentorFilter = selectedMentorFilter.length > 0 ? selectedMentorFilter : undefined;
+    return calculateMentorSessionStats(sessions, weekFilter, monthFilter || undefined, mentorFilter);
   }, [sessions, hasData, weekFilter, monthFilter, selectedMentorFilter]);
 
   if (!hasData) {
@@ -260,6 +425,28 @@ export default function MentorDashboard() {
             Performance metrics for {aggregateMetrics.totalMentors} mentors
           </p>
         </div>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ 
+            backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
+            color: '#fff'
+          }}
+          onMouseEnter={(e) => {
+            if (!isRefreshing) {
+              e.currentTarget.style.backgroundColor = '#16A34A';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!isRefreshing) {
+              e.currentTarget.style.backgroundColor = '#22C55E';
+            }
+          }}
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+        </button>
       </div>
 
       {/* Key Metrics */}
@@ -451,6 +638,8 @@ export default function MentorDashboard() {
                       // Parse week input (format: YYYY-Www)
                       const [year, week] = e.target.value.split('-W');
                       const date = getDateFromWeek(parseInt(year), parseInt(week));
+                      // getDateFromWeek already returns the Monday of the week, but ensure it's normalized
+                      date.setHours(0, 0, 0, 0);
                       setWeekFilter(date);
                       // Clear month filter when week is selected
                       setMonthFilter('');
@@ -513,23 +702,14 @@ export default function MentorDashboard() {
                   </>
                 )}
               </div>
-              {/* Mentor Filter */}
+              {/* Mentor Filter - Multi-select */}
               <div className="flex items-center gap-2">
-                <select
-                  value={selectedMentorFilter}
-                  onChange={(e) => setSelectedMentorFilter(e.target.value)}
-                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
-                  style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff', minWidth: '200px' }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
-                  onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
-                >
-                  <option value="">All Mentors</option>
-                  {uniqueMentors.map((mentor) => (
-                    <option key={mentor.email} value={mentor.email}>
-                      {mentor.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="text-sm text-gray-300 whitespace-nowrap">Mentor:</label>
+                <MentorMultiSelect
+                  mentors={uniqueMentors}
+                  selectedMentors={selectedMentorFilter}
+                  onChange={setSelectedMentorFilter}
+                />
               </div>
             </div>
           </div>

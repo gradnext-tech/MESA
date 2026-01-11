@@ -62,8 +62,6 @@ export async function fetchSheetData(
       return [];
     }
     
-    console.log(`✅ Found sheet: "${sheet.properties.title}" (requested: "${sheetName}")`);
-
     // Use the exact sheet name from the spreadsheet (preserves case and any special characters)
     const exactSheetName = sheet.properties.title;
     
@@ -86,18 +84,14 @@ export async function fetchSheetData(
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
-      console.log(`No rows found for sheet: ${sheetName}`);
       return [];
     }
 
     // First row is headers
     const headers = rows[0];
     if (!headers || headers.length === 0) {
-      console.log(`No headers found for sheet: ${sheetName}`);
       return [];
     }
-
-    console.log(`Processing ${rows.length - 1} data rows for sheet: ${sheetName}`);
     const data: SheetData[] = [];
 
     // For Google Forms responses, skip metadata rows (like "Responder Link", "Edit Link")
@@ -114,8 +108,6 @@ export async function fetchSheetData(
         // The actual headers are likely in the second row
         headerRowIndex = 1;
         actualHeaders = rows[1].map((cell: any) => String(cell || '').trim());
-        console.log(`Skipping metadata row, using row ${headerRowIndex + 1} as headers for sheet: ${sheetName}`);
-        console.log(`Actual headers:`, actualHeaders);
       }
     }
 
@@ -166,7 +158,6 @@ export async function fetchSheetData(
       }
     }
 
-    console.log(`Successfully parsed ${data.length} rows from sheet: ${sheetName}`);
     return data;
 
     return data;
@@ -214,13 +205,6 @@ export async function fetchAllSheets(
           return [];
         }),
       ]);
-      
-      console.log('Fetched data counts:', {
-        mentorFeedbacks: mentorFeedbacks.length,
-        candidateFeedbacks: candidateFeedbacks.length,
-        mentors: mentors.length,
-        mentees: mentees.length
-      });
     }
 
     return {

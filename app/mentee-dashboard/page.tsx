@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
-import { calculateMenteeMetrics, getDetailedCandidateAnalytics } from '@/utils/metricsCalculator';
+import { calculateMenteeMetrics, getDetailedCandidateAnalytics, parseSessionDate } from '@/utils/metricsCalculator';
 import { MetricCard } from '@/components/MetricCard';
 import { DetailModal } from '@/components/DetailModal';
 import { CandidateSessionStats } from '@/types';
@@ -19,6 +19,7 @@ import {
   Award,
   Search,
   CheckCircle,
+  RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -33,24 +34,262 @@ import {
   LineChart,
   Line,
 } from 'recharts';
-import { startOfWeek, endOfWeek, format, parseISO, eachWeekOfInterval, min, max, isWithinInterval, startOfDay } from 'date-fns';
+import { startOfWeek, endOfWeek, format, parseISO, eachWeekOfInterval, min, max, isWithinInterval, startOfDay, startOfMonth, endOfMonth } from 'date-fns';
+import { Filter } from 'lucide-react';
+
+// Multi-select component for mentees
+const MenteeMultiSelect: React.FC<{
+  mentees: Array<{ email: string; name: string }>;
+  selectedMentees: string[];
+  onChange: (selected: string[]) => void;
+}> = ({ mentees, selectedMentees, onChange }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const handleToggle = (email: string) => {
+    if (selectedMentees.includes(email)) {
+      onChange(selectedMentees.filter(e => e !== email));
+    } else {
+      onChange([...selectedMentees, email]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    onChange([]);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <div
+        className="px-3 py-2 border rounded-lg text-sm cursor-pointer flex items-center justify-between min-w-[200px]"
+        style={{ backgroundColor: '#2A4A4A', borderColor: isOpen ? '#22C55E' : '#3A5A5A', color: '#fff' }}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className="text-sm">
+          {selectedMentees.length === 0 
+            ? 'All Mentees' 
+            : selectedMentees.length === 1
+            ? mentees.find(m => m.email === selectedMentees[0])?.name || '1 mentee'
+            : `${selectedMentees.length} mentees`}
+        </span>
+        <span className="text-gray-400">▼</span>
+      </div>
+      {isOpen && (
+        <div
+          className="absolute z-50 mt-1 w-full max-h-60 overflow-auto border rounded-lg shadow-lg"
+          style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}
+        >
+          <div className="p-2 border-b" style={{ borderColor: '#3A5A5A' }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-gray-300">Select Mentees</span>
+              {selectedMentees.length > 0 && (
+                <button
+                  onClick={handleSelectAll}
+                  className="text-xs text-gray-400 hover:text-white"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+            <label className="flex items-center gap-2 p-1 hover:bg-[#1A3636] rounded cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedMentees.length === 0}
+                onChange={handleSelectAll}
+                className="w-4 h-4 rounded"
+                style={{ accentColor: '#22C55E' }}
+              />
+              <span className="text-sm text-white">All Mentees</span>
+            </label>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {mentees.map((mentee) => (
+              <label
+                key={mentee.email}
+                className="flex items-center gap-2 p-2 hover:bg-[#1A3636] cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedMentees.includes(mentee.email)}
+                  onChange={() => handleToggle(mentee.email)}
+                  className="w-4 h-4 rounded"
+                  style={{ accentColor: '#22C55E' }}
+                />
+                <div className="flex-1">
+                  <span className="text-sm text-white">{mentee.name}</span>
+                  <p className="text-xs text-gray-400 truncate">{mentee.email}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {selectedMentees.length > 0 && (
+        <button
+          onClick={() => onChange([])}
+          className="ml-2 text-xs text-gray-400 hover:text-white px-2"
+          title="Clear mentee filter"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+};
+
+// Helper function to convert Date to week input value (YYYY-Www format, ISO week)
+function getWeekInputValue(date: Date): string {
+  const weekStart = startOfWeek(date, { weekStartsOn: 1 });
+  const year = weekStart.getFullYear();
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7;
+  const daysToMonday = (jan4Day === 1) ? 0 : (jan4Day - 1);
+  const firstMonday = new Date(year, 0, 4 - daysToMonday);
+  const diffInDays = Math.floor((weekStart.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24));
+  const weekNum = Math.floor(diffInDays / 7) + 1;
+  
+  if (weekNum < 1) {
+    const prevYear = year - 1;
+    const prevJan4 = new Date(prevYear, 0, 4);
+    const prevJan4Day = prevJan4.getDay() || 7;
+    const prevDaysToMonday = (prevJan4Day === 1) ? 0 : (prevJan4Day - 1);
+    const prevFirstMonday = new Date(prevYear, 0, 4 - prevDaysToMonday);
+    const prevDiffInDays = Math.floor((weekStart.getTime() - prevFirstMonday.getTime()) / (1000 * 60 * 60 * 24));
+    const prevWeekNum = Math.floor(prevDiffInDays / 7) + 1;
+    return `${prevYear}-W${prevWeekNum.toString().padStart(2, '0')}`;
+  }
+  
+  return `${year}-W${weekNum.toString().padStart(2, '0')}`;
+}
+
+// Helper function to get date from year and week number (ISO week format)
+function getDateFromWeek(year: number, week: number): Date {
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7;
+  const daysToMonday = (8 - jan4Day) % 7;
+  const firstMonday = new Date(year, 0, 4 - daysToMonday);
+  const weekStart = new Date(firstMonday);
+  weekStart.setDate(firstMonday.getDate() + (week - 1) * 7);
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+}
 
 export default function MenteeDashboard() {
-  const { sessions, hasData, mentees } = useData();
+  const { sessions, hasData, mentees, setSessions, setMentees, setCandidateFeedbacks } = useData();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [weekFilter, setWeekFilter] = useState<Date | undefined>(undefined);
+  const [monthFilter, setMonthFilter] = useState<string>(''); // Format: YYYY-MM
+  const [selectedMenteeFilter, setSelectedMenteeFilter] = useState<string[]>([]); // Multi-select: array of emails
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMentee, setSelectedMentee] = useState<CandidateSessionStats | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const { candidateFeedbacks } = useData();
+
   const menteeMetrics = useMemo(() => {
     if (!hasData) return null;
-    return calculateMenteeMetrics(sessions, weekFilter, mentees);
-  }, [sessions, hasData, weekFilter, mentees]);
+    const menteeFilter = selectedMenteeFilter.length > 0 ? selectedMenteeFilter : undefined;
+    return calculateMenteeMetrics(sessions, weekFilter, mentees, candidateFeedbacks, monthFilter || undefined, menteeFilter);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter, mentees, candidateFeedbacks]);
+
+  // Get unique mentees for filter
+  const uniqueMentees = useMemo(() => {
+    const menteeMap = new Map<string, { email: string; name: string }>();
+    sessions.forEach(session => {
+      const email = session.menteeEmail;
+      if (email && email.trim()) {
+        const normalizedEmail = email.trim().toLowerCase();
+        if (!menteeMap.has(normalizedEmail)) {
+          menteeMap.set(normalizedEmail, {
+            email: email,
+            name: session.menteeName || email,
+          });
+        }
+      }
+    });
+    return Array.from(menteeMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [sessions]);
 
   const candidateAnalytics = useMemo(() => {
     if (!hasData) return [];
-    return getDetailedCandidateAnalytics(sessions);
-  }, [sessions, hasData]);
+    // Apply filters to candidate analytics
+    let filteredSessions = sessions;
+    
+    if (weekFilter) {
+      const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+      filteredSessions = filteredSessions.filter(s => {
+        const sessionDate = parseSessionDate(s.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(weekStart),
+          end: startOfDay(weekEnd),
+        });
+      });
+    }
+    
+    if (monthFilter) {
+      const monthDate = new Date(monthFilter + '-01');
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      filteredSessions = filteredSessions.filter(s => {
+        const sessionDate = parseSessionDate(s.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(monthStart),
+          end: startOfDay(monthEnd),
+        });
+      });
+    }
+    
+    if (selectedMenteeFilter.length > 0) {
+      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filteredSessions = filteredSessions.filter(s => {
+        const sessionEmail = (s.menteeEmail || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(sessionEmail);
+      });
+    }
+    
+    return getDetailedCandidateAnalytics(filteredSessions);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter]);
+
+  // Calculate additional metrics for new cards
+  const top10BySessions = useMemo(() => {
+    const sorted = [...candidateAnalytics].sort((a, b) => b.totalSessionsBooked - a.totalSessionsBooked);
+    return sorted.slice(0, 10);
+  }, [candidateAnalytics]);
+
+  const bottom10BySessions = useMemo(() => {
+    const sorted = [...candidateAnalytics].sort((a, b) => a.totalSessionsBooked - b.totalSessionsBooked);
+    return sorted.slice(0, 10);
+  }, [candidateAnalytics]);
+
+  const candidatesHighRating = useMemo(() => {
+    return candidateAnalytics.filter(c => c.avgFeedback > 4.75 && c.avgFeedback > 0);
+  }, [candidateAnalytics]);
+
+  const candidatesLowRating = useMemo(() => {
+    return candidateAnalytics.filter(c => c.avgFeedback > 0 && c.avgFeedback < 3.5);
+  }, [candidateAnalytics]);
 
   const filteredCandidates = useMemo(() => {
     if (!searchTerm) return candidateAnalytics;
@@ -77,66 +316,73 @@ export default function MenteeDashboard() {
     return sessions.filter(s => s.menteeEmail === selectedMentee.email);
   }, [selectedMentee, sessions]);
 
-  // Prepare chart data
-  const performanceData = useMemo(() => {
-    if (!menteeMetrics) return [];
-    return [
-      {
-        metric: 'Avg Sessions/Day',
-        value: menteeMetrics.avgDailySessions,
-      },
-      {
-        metric: 'Avg Sessions/Candidate',
-        value: menteeMetrics.avgSessionsPerCandidateTotal,
-      },
-      {
-        metric: 'Avg Sessions/Active',
-        value: menteeMetrics.avgSessionsPerCandidateActive,
-      },
-      {
-        metric: 'Avg Feedback',
-        value: menteeMetrics.avgFeedbackScore,
-      },
-    ];
-  }, [menteeMetrics]);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const response = await fetch('/api/sheets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
 
-  // Helper function to parse dates consistently
-  const parseSessionDate = (dateString: string): Date | null => {
-    if (!dateString) return null;
-    
-    try {
-      // Try parseISO first (handles ISO format dates)
-      const date = parseISO(dateString);
-      if (!isNaN(date.getTime())) {
-        return date;
+      const result = await response.json();
+
+      if (response.ok && result.success && result.data.sessions) {
+        const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+        const parsedSessions = parseSpreadsheetData(
+          result.data.sessions,
+          result.data.mentorFeedbacks || [],
+          result.data.candidateFeedbacks || []
+        );
+        const parsedMentees = parseMenteeData(result.data.mentees || []);
+        setSessions(parsedSessions);
+        setMentees(parsedMentees);
+        setCandidateFeedbacks(result.data.candidateFeedbacks || []);
       }
-    } catch {
-      // Continue to try Date constructor
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setIsRefreshing(false);
     }
-    
-    try {
-      // Try Date constructor (handles various formats)
-      const date = new Date(dateString);
-      if (!isNaN(date.getTime())) {
-        return date;
-      }
-    } catch {
-      // Return null if both fail
-    }
-    
-    return null;
   };
 
   // Weekwise Session Booked Data
   const weekwiseSessionData = useMemo(() => {
     if (!hasData || sessions.length === 0) {
-      console.log('Weekwise data: No sessions available', { hasData, sessionsLength: sessions.length });
       return [];
+    }
+    
+    // Apply filters to sessions for weekwise chart
+    let filteredSessions = sessions;
+    
+    if (monthFilter) {
+      const monthDate = new Date(monthFilter + '-01');
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      filteredSessions = filteredSessions.filter(s => {
+        const sessionDate = parseSessionDate(s.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(monthStart),
+          end: startOfDay(monthEnd),
+        });
+      });
+    }
+    
+    if (selectedMenteeFilter.length > 0) {
+      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filteredSessions = filteredSessions.filter(s => {
+        const sessionEmail = (s.menteeEmail || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(sessionEmail);
+      });
     }
     
     // Get all session dates with consistent parsing
     const sessionDates: Date[] = [];
-    sessions.forEach(s => {
+    filteredSessions.forEach(s => {
       if (!s.date) return;
       const parsedDate = parseSessionDate(s.date);
       if (parsedDate) {
@@ -144,25 +390,13 @@ export default function MenteeDashboard() {
       }
     });
     
-    console.log('Weekwise data: Valid dates found', sessionDates.length, 'out of', sessions.length);
     if (sessionDates.length === 0) {
-      console.log('Weekwise data: No valid dates found. Sample dates:', sessions.slice(0, 5).map(s => ({ date: s.date, type: typeof s.date })));
       return [];
     }
-    
-    // Log sample dates for debugging
-    console.log('Weekwise data: Sample parsed dates:', sessionDates.slice(0, 3).map(d => d.toISOString()));
     
     // Find date range
     const minDate = min(sessionDates);
     const maxDate = max(sessionDates);
-    
-    console.log('Weekwise data: Date range', { 
-      minDate: minDate.toISOString(), 
-      maxDate: maxDate.toISOString(),
-      minDateFormatted: format(minDate, 'MMM d, yyyy'),
-      maxDateFormatted: format(maxDate, 'MMM d, yyyy')
-    });
     
     // Generate all weeks in the range
     const weeks = eachWeekOfInterval(
@@ -170,19 +404,13 @@ export default function MenteeDashboard() {
       { weekStartsOn: 1 } // Monday
     );
     
-    console.log('Weekwise data: Weeks generated', weeks.length);
-    console.log('Weekwise data: Week ranges:', weeks.map(w => {
-      const we = endOfWeek(w, { weekStartsOn: 1 });
-      return `${format(w, 'MMM d')} - ${format(we, 'MMM d')}`;
-    }));
-    
     // Count sessions per week using the same parsing function
     const weekData = weeks.map(weekStart => {
       const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
       const weekStartNormalized = startOfDay(weekStart);
       const weekEndNormalized = startOfDay(weekEnd);
       
-      const weekSessions = sessions.filter(s => {
+      const weekSessions = filteredSessions.filter(s => {
         if (!s.date) return false;
         
         const sessionDate = parseSessionDate(s.date);
@@ -200,96 +428,24 @@ export default function MenteeDashboard() {
         return isInWeek;
       });
       
-      console.log(`Week ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d')}: Found ${weekSessions.length} sessions`);
-      if (weekSessions.length > 0) {
-        console.log(`  Sample session dates in this week:`, weekSessions.slice(0, 3).map(s => s.date));
-      }
+      // Count completed sessions (status is "completed" or "done")
+      const completedSessions = weekSessions.filter(s => {
+        const status = (s.sessionStatus || '').toLowerCase().trim();
+        return status === 'completed' || status === 'done';
+      });
       
       return {
         week: format(weekStart, 'MMM d'),
         weekStart: weekStart.toISOString(),
         sessions: weekSessions.length,
+        sessionsDone: completedSessions.length,
         weekLabel: `${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')}`,
       };
     });
-    
-    const totalSessions = weekData.reduce((sum, w) => sum + w.sessions, 0);
-    console.log('Weekwise data: Final data', weekData.length, 'weeks');
-    console.log('Weekwise data: Total sessions across all weeks', totalSessions, 'out of', sessions.length, 'total sessions');
-    if (weekData.length > 0) {
-      console.log('Weekwise data: Sample weeks', weekData.slice(0, 3));
-    }
     
     // Return all weeks (including those with 0 sessions) for complete trend visualization
     return weekData;
-  }, [sessions, hasData]);
-
-  // Weekwise Cancellations & No-Shows data for line chart
-  const weekwiseDisruptionData = useMemo(() => {
-    if (!hasData || sessions.length === 0) return [];
-    
-    const sessionDates: Date[] = [];
-    sessions.forEach(s => {
-      const parsedDate = parseSessionDate(s.date);
-      if (parsedDate) sessionDates.push(parsedDate);
-    });
-    
-    if (sessionDates.length === 0) return [];
-    
-    const minDate = min(sessionDates);
-    const maxDate = max(sessionDates);
-    const weeks = eachWeekOfInterval({ start: minDate, end: maxDate }, { weekStartsOn: 1 });
-    
-    return weeks.map(weekStart => {
-      const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-      const weekStartNormalized = startOfDay(weekStart);
-      const weekEndNormalized = startOfDay(weekEnd);
-      
-      const weekSessions = sessions.filter(s => {
-        const sessionDate = parseSessionDate(s.date);
-        if (!sessionDate) return false;
-        const sessionDateNormalized = startOfDay(sessionDate);
-        return isWithinInterval(sessionDateNormalized, {
-          start: weekStartNormalized,
-          end: weekEndNormalized,
-        });
-      });
-      
-      const cancelled = weekSessions.filter(s => {
-        const status = (s.sessionStatus || '').toLowerCase().trim();
-        return status === 'cancelled';
-      }).length;
-      
-      const noShow = weekSessions.filter(s => {
-        const status = (s.sessionStatus || '').toLowerCase().trim();
-        return status === 'mentee no show' || status === 'candidate no show' || status === 'menteenoshow' || status === 'candidatenoshow';
-      }).length;
-      
-      return {
-        week: format(weekStart, 'MMM d'),
-        weekStart: weekStart.toISOString(),
-        cancelled,
-        noShow,
-        weekLabel: `${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')}`,
-      };
-    });
-  }, [sessions, hasData]);
-
-  const disruptionData = useMemo(() => {
-    if (!menteeMetrics) return [];
-    return [
-      {
-        category: 'Sessions',
-        Cancelled: menteeMetrics.totalSessionsCancelled,
-        NoShow: menteeMetrics.totalNoShows,
-      },
-      {
-        category: 'Candidates',
-        Cancelled: menteeMetrics.candidatesCancelled,
-        NoShow: menteeMetrics.candidatesNoShow,
-      },
-    ];
-  }, [menteeMetrics]);
+  }, [sessions, hasData, monthFilter, selectedMenteeFilter]);
 
   if (!hasData || !menteeMetrics) {
     return (
@@ -313,16 +469,125 @@ export default function MenteeDashboard() {
   return (
     <div className="space-y-8">
       {/* Header */}
+      <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Mentee Dashboard</h1>
-          <p className="text-gray-300 mt-1">
+            <h1 className="text-3xl font-bold text-white">Mentee Dashboard</h1>
+            <p className="text-gray-300 mt-1">
             Comprehensive analytics for mentee engagement and performance
           </p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ 
+              backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
+              color: '#fff'
+            }}
+            onMouseEnter={(e) => {
+              if (!isRefreshing) {
+                e.currentTarget.style.backgroundColor = '#16A34A';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isRefreshing) {
+                e.currentTarget.style.backgroundColor = '#22C55E';
+              }
+            }}
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Week Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <label className="text-sm text-gray-300 whitespace-nowrap">Week:</label>
+            <input
+              type="week"
+              value={weekFilter ? getWeekInputValue(weekFilter) : ''}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const [year, week] = e.target.value.split('-W');
+                  const date = getDateFromWeek(parseInt(year), parseInt(week));
+                  date.setHours(0, 0, 0, 0);
+                  setWeekFilter(date);
+                  setMonthFilter(''); // Clear month filter when week is selected
+                } else {
+                  setWeekFilter(undefined);
+                }
+              }}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
+              style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
+              onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
+              onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
+            />
+            {weekFilter && (
+              <>
+                <span className="text-xs text-gray-400 whitespace-nowrap">
+                  ({format(startOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d')} - {format(endOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d, yyyy')})
+                </span>
+                <button
+                  onClick={() => setWeekFilter(undefined)}
+                  className="text-xs text-gray-400 hover:text-white px-2"
+                  title="Clear week filter"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+          {/* Month Filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-300 whitespace-nowrap">Month:</label>
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setMonthFilter(e.target.value);
+                  setWeekFilter(undefined); // Clear week filter when month is selected
+                } else {
+                  setMonthFilter('');
+                }
+              }}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
+              style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
+              onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
+              onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
+            />
+            {monthFilter && (
+              <>
+                <span className="text-xs text-gray-400 whitespace-nowrap">
+                  ({format(new Date(monthFilter + '-01'), 'MMM yyyy')})
+                </span>
+                <button
+                  onClick={() => setMonthFilter('')}
+                  className="text-xs text-gray-400 hover:text-white px-2"
+                  title="Clear month filter"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+          {/* Mentee Filter - Multi-select */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-300 whitespace-nowrap">Mentee:</label>
+            <MenteeMultiSelect
+              mentees={uniqueMentees}
+              selectedMentees={selectedMenteeFilter}
+              onChange={setSelectedMenteeFilter}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Primary Metrics - Improved Layout */}
+      {/* Primary Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Total Sessions Done"
@@ -332,21 +597,21 @@ export default function MenteeDashboard() {
           subtitle="Completed sessions"
         />
         <MetricCard
-          title="Candidates Booking"
+          title="# of Unique Candidates"
           value={menteeMetrics.candidatesBooking}
           icon={Users}
           iconColor="text-[#22C55E]"
-          subtitle="Unique candidates"
+          subtitle="Total candidates"
         />
         <MetricCard
-          title="First Time Candidates"
-          value={menteeMetrics.firstTimeCandidates}
-          icon={UserPlus}
-          iconColor="text-[#22C55E]"
-          subtitle="New this period"
+          title="Sessions Cancelled / Rescheduled / No Show"
+          value={`${menteeMetrics.totalSessionsCancelled} / ${menteeMetrics.totalSessionsRescheduled} / ${menteeMetrics.totalNoShows}`}
+          icon={XCircle}
+          iconColor="text-red-500"
+          subtitle="Disruptions"
         />
         <MetricCard
-          title="Avg Feedback Score"
+          title="Avg. Rating"
           value={menteeMetrics.avgFeedbackScore > 0 ? menteeMetrics.avgFeedbackScore.toFixed(2) : 'N/A'}
           icon={Star}
           iconColor="text-[#22C55E]"
@@ -354,60 +619,24 @@ export default function MenteeDashboard() {
         />
       </div>
 
-      {/* Session Averages - Compact Layout */}
+      {/* Candidate Lists */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <MetricCard
-          title="Avg Daily Sessions"
-          value={menteeMetrics.avgDailySessions.toFixed(1)}
-          icon={TrendingUp}
-          iconColor="text-[#22C55E]"
-          subtitle="Per day average"
-        />
-        <MetricCard
-          title="Avg Sessions (Active)"
-          value={menteeMetrics.avgSessionsPerCandidateActive.toFixed(1)}
-          icon={Activity}
-          iconColor="text-[#22C55E]"
-          subtitle="Candidates with ≥1 session"
-        />
-      </div>
-
-      {/* Weekly Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <MetricCard
-          title="Avg Sessions Per Week"
-          value={menteeMetrics.avgSessionsPerWeek > 0 ? menteeMetrics.avgSessionsPerWeek.toFixed(1) : 'N/A'}
-          icon={Calendar}
-          iconColor="text-[#22C55E]"
-          subtitle={menteeMetrics.avgSessionsPerWeek > 0 ? "Weekly average" : "No sessions available"}
-        />
-        <MetricCard
-          title="Avg Rating Per Week"
-          value={menteeMetrics.avgRatingPerWeek > 0 ? menteeMetrics.avgRatingPerWeek.toFixed(2) : 'N/A'}
-          icon={Star}
-          iconColor="text-[#22C55E]"
-          subtitle="Weekly average rating"
-        />
-      </div>
-
-      {/* Top Performers - Lists */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Top 10% by Sessions */}
+        {/* Top 10 Candidates by Sessions */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)' }}>
               <Trophy className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Top 10% by Sessions</h3>
+              <h3 className="text-lg font-semibold text-white">Top 10 Candidates by Sessions</h3>
               <p className="text-xs text-gray-400">Candidates with most sessions</p>
             </div>
           </div>
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {menteeMetrics.top10BySessions.length === 0 ? (
+            {top10BySessions.length === 0 ? (
               <p className="text-gray-400 text-sm">No candidates found</p>
             ) : (
-              menteeMetrics.top10BySessions.map((candidate, index) => (
+              top10BySessions.map((candidate, index) => (
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
@@ -424,24 +653,24 @@ export default function MenteeDashboard() {
               ))
             )}
           </div>
-        </div>
+      </div>
 
-        {/* Top 10% by Rating */}
+        {/* Candidates with >4.75 Rating */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)' }}>
               <Award className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Top 10% by Rating</h3>
-              <p className="text-xs text-gray-400">Highest rated candidates</p>
+              <h3 className="text-lg font-semibold text-white">Candidates with &gt;4.75 Rating</h3>
+              <p className="text-xs text-gray-400">{candidatesHighRating.length} candidates</p>
             </div>
           </div>
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {menteeMetrics.top10ByRating.length === 0 ? (
+            {candidatesHighRating.length === 0 ? (
               <p className="text-gray-400 text-sm">No candidates found</p>
             ) : (
-              menteeMetrics.top10ByRating.map((candidate, index) => (
+              candidatesHighRating.map((candidate, index) => (
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
@@ -461,25 +690,22 @@ export default function MenteeDashboard() {
               ))
             )}
           </div>
-        </div>
       </div>
 
-      {/* Bottom Performers & No Sessions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Bottom 10% Feedback */}
+        {/* Bottom 10 Candidates by Sessions */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
           <div className="flex items-center gap-3 mb-4">
             <AlertCircle className="w-5 h-5 text-orange-500" />
             <div>
-              <h3 className="text-lg font-semibold text-white">Bottom 10% Feedback</h3>
-              <p className="text-xs text-gray-400">Lowest feedback scores</p>
+              <h3 className="text-lg font-semibold text-white">Bottom 10 Candidates by Sessions</h3>
+              <p className="text-xs text-gray-400">Candidates with fewest sessions</p>
             </div>
           </div>
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {menteeMetrics.bottom10Feedback.length === 0 ? (
+            {bottom10BySessions.length === 0 ? (
               <p className="text-gray-400 text-sm">No candidates found</p>
             ) : (
-              menteeMetrics.bottom10Feedback.map((candidate, index) => (
+              bottom10BySessions.map((candidate, index) => (
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
@@ -489,7 +715,7 @@ export default function MenteeDashboard() {
                     <span className="text-sm font-bold text-orange-500 w-6">#{index + 1}</span>
                     <div>
                       <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
-                      <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)} rating</p>
+                      <p className="text-xs text-gray-400">{candidate.totalSessionsBooked} sessions</p>
                     </div>
                   </div>
                 </div>
@@ -498,30 +724,33 @@ export default function MenteeDashboard() {
           </div>
         </div>
 
-        {/* Bottom 25% Feedback */}
+        {/* Candidates with <3.5 Rating */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
           <div className="flex items-center gap-3 mb-4">
-            <AlertCircle className="w-5 h-5 text-orange-400" />
+            <AlertCircle className="w-5 h-5 text-red-500" />
             <div>
-              <h3 className="text-lg font-semibold text-white">Bottom 25% Feedback</h3>
-              <p className="text-xs text-gray-400">Lower feedback scores</p>
+              <h3 className="text-lg font-semibold text-white">Candidates with &lt;3.5 Rating</h3>
+              <p className="text-xs text-gray-400">{candidatesLowRating.length} candidates</p>
             </div>
           </div>
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {menteeMetrics.bottom25Feedback.length === 0 ? (
+            {candidatesLowRating.length === 0 ? (
               <p className="text-gray-400 text-sm">No candidates found</p>
             ) : (
-              menteeMetrics.bottom25Feedback.map((candidate, index) => (
+              candidatesLowRating.map((candidate, index) => (
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
                   onClick={() => handleMenteeClick(candidate)}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-orange-400 w-6">#{index + 1}</span>
+                    <span className="text-sm font-bold text-red-500 w-6">#{index + 1}</span>
                     <div>
                       <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
-                      <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)} rating</p>
+                      <div className="flex items-center gap-2">
+                        <Star className="w-3 h-3 text-red-400" />
+                        <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)} rating</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -529,140 +758,14 @@ export default function MenteeDashboard() {
             )}
           </div>
         </div>
-
-        {/* Candidates No Sessions */}
-        <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-          <div className="flex items-center gap-3 mb-4">
-            <XCircle className="w-5 h-5 text-red-400" />
-            <div>
-              <h3 className="text-lg font-semibold text-white">Candidates No Sessions</h3>
-              <p className="text-xs text-gray-400">{menteeMetrics.candidatesNoSessions.length} candidates</p>
-            </div>
-          </div>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {menteeMetrics.candidatesNoSessions.length === 0 ? (
-              <p className="text-gray-400 text-sm">All candidates have sessions</p>
-            ) : (
-              menteeMetrics.candidatesNoSessions.map((mentee, index) => (
-                <div
-                  key={mentee.email}
-                  className="p-2 rounded-lg hover:bg-[#1A3636] transition-colors"
-                >
-                  <p className="text-sm font-medium text-white">{mentee.name || mentee.email}</p>
-                  <p className="text-xs text-gray-400">{mentee.email}</p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
       </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Performance Metrics Bar Chart */}
-        <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-          <h3 className="text-lg font-semibold text-white mb-4">
-            Performance Metrics Overview
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={performanceData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#3A5A5A" />
-              <XAxis dataKey="metric" stroke="#86EFAC" fontSize={12} tick={{ fill: '#86EFAC' }} />
-              <YAxis stroke="#86EFAC" tick={{ fill: '#86EFAC' }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#2A4A4A',
-                  border: '1px solid #3A5A5A',
-                  borderRadius: '8px',
-                  color: '#fff',
-                }}
-              />
-              <Bar dataKey="value" fill="#22C55E" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Cancellations & No-Shows - Interactive Line Chart */}
-        <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Cancellations & No-Shows</h3>
-              <p className="text-xs text-gray-400 mt-1">Weekly trend analysis</p>
-            </div>
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <span className="text-gray-300">Cancelled</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-                <span className="text-gray-300">No-Show</span>
-              </div>
-            </div>
-          </div>
-          {weekwiseDisruptionData.length === 0 ? (
-            <div className="flex items-center justify-center h-[300px]">
-              <p className="text-gray-400">No disruption data available</p>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={weekwiseDisruptionData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#3A5A5A" opacity={0.3} />
-                <XAxis 
-                  dataKey="week" 
-                  stroke="#86EFAC" 
-                  tick={{ fill: '#86EFAC', fontSize: 11 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis stroke="#86EFAC" tick={{ fill: '#86EFAC', fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1A3636',
-                    border: '1px solid #3A5A5A',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
-                  }}
-                  labelFormatter={(label) => {
-                    const data = weekwiseDisruptionData.find(d => d.week === label);
-                    return data ? data.weekLabel : label;
-                  }}
-                />
-                <Legend 
-                  wrapperStyle={{ paddingTop: '10px' }}
-                  iconType="line"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="cancelled"
-                  stroke="#ef4444"
-                  strokeWidth={2.5}
-                  dot={{ fill: '#ef4444', r: 4, strokeWidth: 2, stroke: '#fff' }}
-                  activeDot={{ r: 6, fill: '#ef4444', strokeWidth: 2, stroke: '#fff' }}
-                  name="Cancelled"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="noShow"
-                  stroke="#f97316"
-                  strokeWidth={2.5}
-                  dot={{ fill: '#f97316', r: 4, strokeWidth: 2, stroke: '#fff' }}
-                  activeDot={{ r: 6, fill: '#f97316', strokeWidth: 2, stroke: '#fff' }}
-                  name="No-Show"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
 
       {/* Weekwise Session Booked Line Chart - Full Width */}
       <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
         <h3 className="text-lg font-semibold text-white mb-4">
           Weekwise Sessions Booked
-        </h3>
+          </h3>
         {weekwiseSessionData.length === 0 ? (
           <div className="flex items-center justify-center h-[300px]">
             <p className="text-gray-400">No session data available</p>
@@ -700,43 +803,20 @@ export default function MenteeDashboard() {
                 strokeWidth={3}
                 dot={{ fill: '#22C55E', r: 5 }}
                 activeDot={{ r: 7, fill: '#16A34A' }}
-                name="Sessions Booked"
+                name="Total Sessions Scheduled"
+              />
+              <Line
+                type="monotone"
+                dataKey="sessionsDone"
+                stroke="#86EFAC"
+                strokeWidth={3}
+                dot={{ fill: '#86EFAC', r: 5 }}
+                activeDot={{ r: 7, fill: '#4ADE80' }}
+                name="Total Sessions Done"
               />
             </LineChart>
           </ResponsiveContainer>
         )}
-      </div>
-
-      {/* Cancellations & No-Shows Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard
-          title="Sessions Cancelled"
-          value={menteeMetrics.totalSessionsCancelled}
-          icon={XCircle}
-          iconColor="text-red-500"
-          subtitle="Total cancellations"
-        />
-        <MetricCard
-          title="Total No-Shows"
-          value={menteeMetrics.totalNoShows}
-          icon={AlertCircle}
-          iconColor="text-orange-500"
-          subtitle="Missed sessions"
-        />
-        <MetricCard
-          title="Candidates Cancelled"
-          value={menteeMetrics.candidatesCancelled}
-          icon={Users}
-          iconColor="text-red-400"
-          subtitle="Unique candidates"
-        />
-        <MetricCard
-          title="Candidates No-Show"
-          value={menteeMetrics.candidatesNoShow}
-          icon={Users}
-          iconColor="text-orange-400"
-          subtitle="Unique candidates"
-        />
       </div>
 
       {/* Individual Mentee Analytics Table */}
@@ -902,75 +982,6 @@ export default function MenteeDashboard() {
         )}
       </div>
 
-      {/* Insights Section */}
-      <div className="rounded-xl p-6 border" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(134, 239, 172, 0.1) 100%)', borderColor: '#22C55E' }}>
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-          <TrendingUp className="w-5 h-5 mr-2" style={{ color: '#22C55E' }} />
-          Key Insights
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(42, 74, 74, 0.6)' }}>
-            <p className="font-medium text-white mb-1">Engagement Rate</p>
-            <p className="text-gray-300">
-              {menteeMetrics.candidatesBooking > 0
-                ? (
-                    (menteeMetrics.totalSessionsDone /
-                      menteeMetrics.candidatesBooking) *
-                    100
-                  ).toFixed(1)
-                : 0}
-              % of candidates completed sessions
-            </p>
-          </div>
-          <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(42, 74, 74, 0.6)' }}>
-            <p className="font-medium text-white mb-1">Completion Rate</p>
-            <p className="text-gray-300">
-              {menteeMetrics.totalSessionsDone +
-                menteeMetrics.totalSessionsCancelled +
-                menteeMetrics.totalNoShows >
-              0
-                ? (
-                    (menteeMetrics.totalSessionsDone /
-                      (menteeMetrics.totalSessionsDone +
-                        menteeMetrics.totalSessionsCancelled +
-                        menteeMetrics.totalNoShows)) *
-                    100
-                  ).toFixed(1)
-                : 0}
-              % of booked sessions completed
-            </p>
-          </div>
-          <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(42, 74, 74, 0.6)' }}>
-            <p className="font-medium text-white mb-1">Disruption Rate</p>
-            <p className="text-gray-300">
-              {menteeMetrics.totalSessionsDone > 0
-                ? (
-                    ((menteeMetrics.totalSessionsCancelled +
-                      menteeMetrics.totalNoShows) /
-                      menteeMetrics.totalSessionsDone) *
-                    100
-                  ).toFixed(1)
-                : 0}
-              % cancellations/no-shows
-            </p>
-          </div>
-          <div className="rounded-lg p-4" style={{ backgroundColor: 'rgba(42, 74, 74, 0.6)' }}>
-            <p className="font-medium text-white mb-1">Retention Insight</p>
-            <p className="text-gray-300">
-              {menteeMetrics.candidatesBooking > 0
-                ? (
-                    ((menteeMetrics.candidatesBooking -
-                      menteeMetrics.firstTimeCandidates) /
-                      menteeMetrics.candidatesBooking) *
-                    100
-                  ).toFixed(1)
-                : 0}
-              % are returning candidates
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* Detail Modal */}
       {selectedMentee && (
         <DetailModal
@@ -981,6 +992,7 @@ export default function MenteeDashboard() {
           email={selectedMentee.email}
           phone={sessions.find(s => s.menteeEmail === selectedMentee.email)?.menteePhone}
           sessions={menteeSessions}
+          candidateFeedbacks={candidateFeedbacks}
         />
       )}
     </div>

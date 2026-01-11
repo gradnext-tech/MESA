@@ -8,7 +8,7 @@ import { CheckCircle, TrendingUp, Users, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
-  const { sessions, setSessions, hasData, mentees, setMentees } = useData();
+  const { sessions, setSessions, hasData, mentees, setMentees, setCandidateFeedbacks } = useData();
   const [autoConnecting, setAutoConnecting] = useState(true);
   const hasLoadedRef = React.useRef(false);
 
@@ -26,6 +26,7 @@ export default function Home() {
     const parsedMentees = parseMenteeData(data.mentees || []);
     setSessions(parsedSessions);
     setMentees(parsedMentees);
+    setCandidateFeedbacks(data.candidateFeedbacks || []);
     setAutoConnecting(false);
   };
 
@@ -70,11 +71,9 @@ export default function Home() {
             mentees: result.data.mentees || [],
           });
         } else {
-          console.warn('Auto-connect failed:', result.error);
           setAutoConnecting(false);
         }
       } catch (error) {
-        console.warn('Auto-connect error:', error);
         setAutoConnecting(false);
       }
     };
@@ -87,7 +86,7 @@ export default function Home() {
       {/* Hero Section */}
       <div className="text-center space-y-4">
         <h1 className="text-4xl md:text-5xl font-bold text-white">
-          Mesa Dashboard
+          Performance Dashboard
         </h1>
         <p className="text-lg text-gray-300 max-w-2xl mx-auto">
           Comprehensive analytics platform for mentorship sessions. Connect your Google Sheets to view detailed insights on mentors and mentees.

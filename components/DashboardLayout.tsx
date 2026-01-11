@@ -1,10 +1,9 @@
 'use client';
 
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import Image from 'next/image';
-import { Users, UserCheck, LayoutDashboard } from 'lucide-react';
+import { Users, UserCheck, LayoutDashboard, Calendar } from 'lucide-react';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -12,12 +11,12 @@ interface DashboardLayoutProps {
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const pathname = usePathname();
-  const [logoError, setLogoError] = useState(false);
 
   const navItems = [
     { href: '/', label: 'Home', icon: LayoutDashboard },
     { href: '/mentor-dashboard', label: 'Mentor Dashboard', icon: UserCheck },
     { href: '/mentee-dashboard', label: 'Mentee Dashboard', icon: Users },
+    { href: '/weekwise-sessions', label: 'Weekwise Sessions', icon: Calendar },
   ];
 
   return (
@@ -27,22 +26,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <Link href="/" className="flex-shrink-0 flex items-center hover:opacity-80 transition-opacity">
-                {/* Logo Image - logo.jpeg from /public folder */}
-                {!logoError ? (
-                  <Image
-                    src="/logo.jpeg"
-                    alt="Mesa Logo"
-                    width={40}
-                    height={40}
-                    className="object-contain"
-                    onError={() => setLogoError(true)}
-                    priority
-                  />
-                ) : (
-                  <span className="text-white font-bold text-xl">M</span>
-                )}
-                <span className="ml-3 text-xl font-bold text-white">
-                  Mesa Dashboard
+                <span className="text-xl font-bold text-white">
+                  Performance Dashboard
                 </span>
               </Link>
             </div>

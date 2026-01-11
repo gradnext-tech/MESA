@@ -81,8 +81,10 @@ export interface MenteeMetrics {
   bottom25Feedback: CandidateSessionStats[];
   candidatesNoSessions: Mentee[];
   totalSessionsCancelled: number;
+  totalSessionsRescheduled: number;
   totalNoShows: number;
   candidatesCancelled: number;
+  candidatesRescheduled: number;
   candidatesNoShow: number;
 }
 

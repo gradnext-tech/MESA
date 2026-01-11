@@ -1,28 +1,115 @@
 import { Session, MentorMetrics, MenteeMetrics, CandidateSessionStats, Mentee } from '@/types';
-import { parseISO, differenceInDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, parse } from 'date-fns';
+import { parseISO, differenceInDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, parse, isWithinInterval, startOfDay } from 'date-fns';
 
 /**
- * Normalise raw session status text from the spreadsheet
- * Allowed values in the sheet (column M):
- *  - "Completed"
- *  - "Cancelled"
- *  - "Rescheduled"
- *  - "Mentee no show"
- *  - "Mentor No show"
+ * Helper function to parse session dates consistently
+ * Handles MM/DD/YYYY format and other common formats
  */
-function normalizeSessionStatus(raw?: string) {
-  if (!raw) return 'unknown';
-  const value = raw.trim().toLowerCase();
+export function parseSessionDate(dateStr: string): Date | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  
+  try {
+    // Try parsing MM/DD/YYYY format manually first (most common in spreadsheets)
+    const parts = dateStr.trim().split('/');
+    if (parts.length === 3) {
+      const month = parseInt(parts[0], 10) - 1; // Month is 0-indexed
+      const day = parseInt(parts[1], 10);
+      const year = parseInt(parts[2], 10);
+      
+      if (!isNaN(month) && !isNaN(day) && !isNaN(year) && month >= 0 && month <= 11) {
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+    }
+    
+    // Try date-fns parse with common formats
+    try {
+      let parsed = parse(dateStr, 'M/d/yyyy', new Date());
+      if (!isNaN(parsed.getTime())) return parsed;
+      
+      parsed = parse(dateStr, 'MM/dd/yyyy', new Date());
+      if (!isNaN(parsed.getTime())) return parsed;
+    } catch {
+      // Continue to try other formats
+    }
+    
+    // Try parseISO for ISO format dates
+    try {
+      const parsed = parseISO(dateStr);
+      if (!isNaN(parsed.getTime())) return parsed;
+    } catch {
+      // Continue to try Date constructor
+    }
+    
+    // Fallback to Date constructor
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  } catch {
+    // Return null if all parsing fails
+  }
+  
+  return null;
+}
 
-  // Handle various status formats
+export function normalizeSessionStatus(raw?: string) {
+  if (!raw) return 'unknown';
+  const value = raw.trim().toLowerCase().replace(/\s+/g, ' '); // Normalize whitespace
+
+  // Handle completed/done
   if (value === 'completed' || value === 'done') return 'completed';
-  if (value === 'cancelled') return 'cancelled';
-  if (value === 'rescheduled') return 'rescheduled';
+  
+  // Handle pending
   if (value === 'pending') return 'pending';
 
-  // Handle no show variations
-  if (value === 'mentee no show' || value === 'mentee no-show' || value === 'menteenoshow' || value === 'candidate no show' || value === 'candidate no-show' || value === 'candidatenoshow') return 'mentee_no_show';
-  if (value === 'mentor no show' || value === 'mentor no-show' || value === 'mentornoshow') return 'mentor_no_show';
+  // Handle mentee disruptions first (to avoid matching mentor disruptions)
+  // Check for mentee/candidate no show
+  if ((value.includes('mentee') || value.includes('candidate')) && 
+      (value.includes('no show') || value.includes('no-show') || value.includes('noshow'))) {
+    return 'mentee_no_show';
+  }
+  // Check for mentee cancelled
+  if (value.includes('mentee') && value.includes('cancel')) {
+    return 'mentee_cancelled';
+  }
+  // Check for mentee rescheduled
+  if (value.includes('mentee') && value.includes('reschedule')) {
+    return 'mentee_rescheduled';
+  }
+
+  // Handle mentor disruptions - be more flexible with matching
+  // Check for mentor no show (must check mentor first to avoid matching mentee)
+  if (value.includes('mentor') && (value.includes('no show') || value.includes('no-show') || value.includes('noshow'))) {
+    return 'mentor_no_show';
+  }
+  // Check for mentor cancelled
+  if (value.includes('mentor') && value.includes('cancel')) {
+    return 'mentor_cancelled';
+  }
+  // Check for mentor rescheduled
+  if (value.includes('mentor') && value.includes('reschedule')) {
+    return 'mentor_rescheduled';
+  }
+
+  // Handle admin disruptions (not counted as disruptions for either dashboard)
+  if (value.includes('admin') && value.includes('cancel')) {
+    return 'admin_cancelled';
+  }
+  if (value.includes('admin') && value.includes('reschedule')) {
+    return 'admin_rescheduled';
+  }
+
+  // Legacy support for old format (without prefixes) - treat as generic
+  // These should be updated in the spreadsheet, but we'll handle them gracefully
+  if (value === 'cancelled' && !value.includes('mentor') && !value.includes('mentee') && !value.includes('admin')) {
+    return 'unknown_cancelled'; // Don't count in either dashboard
+  }
+  if (value === 'rescheduled' && !value.includes('mentor') && !value.includes('mentee') && !value.includes('admin')) {
+    return 'unknown_rescheduled'; // Don't count in either dashboard
+  }
 
   return 'unknown';
 }
@@ -62,18 +149,14 @@ export function calculateMentorMetrics(sessions: Session[]): MentorMetrics[] {
       metrics.sessionsDone++;
     }
 
-    // Count cancelled sessions
-    if (status === 'cancelled') {
+    // Count mentor disruptions only (for mentor metrics)
+    if (status === 'mentor_cancelled') {
       metrics.sessionsCancelled++;
     }
-
-    // Count no-shows (only mentor no-shows for mentor metrics)
     if (status === 'mentor_no_show') {
       metrics.sessionsNoShow++;
     }
-
-    // Count rescheduled
-    if (status === 'rescheduled') {
+    if (status === 'mentor_rescheduled') {
       metrics.sessionsRescheduled++;
     }
 
@@ -133,7 +216,7 @@ export function calculateMentorMetrics(sessions: Session[]): MentorMetrics[] {
 /**
  * Calculate Mentee Dashboard Metrics from session data
  */
-export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, mentees?: Mentee[]): MenteeMetrics {
+export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, mentees?: Mentee[], candidateFeedbacks?: any[], monthFilter?: string, menteeEmailFilter?: string | string[]): MenteeMetrics {
   let filteredSessions = sessions;
 
   // Filter by week if provided
@@ -141,7 +224,7 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
     const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
     
-    filteredSessions = sessions.filter(session => {
+    filteredSessions = filteredSessions.filter(session => {
       try {
         let sessionDate: Date;
         try {
@@ -154,6 +237,39 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
         return false;
       }
     });
+  }
+
+  // Filter by month if provided
+  if (monthFilter) {
+    const monthDate = new Date(monthFilter + '-01');
+    const monthStart = startOfMonth(monthDate);
+    const monthEnd = endOfMonth(monthDate);
+    
+    filteredSessions = filteredSessions.filter(session => {
+      try {
+        const sessionDate = parseSessionDate(session.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(monthStart),
+          end: startOfDay(monthEnd),
+        });
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  // Filter by mentee email(s) if provided
+  if (menteeEmailFilter) {
+    const filterEmails = Array.isArray(menteeEmailFilter) ? menteeEmailFilter : [menteeEmailFilter];
+    if (filterEmails.length > 0) {
+      const normalizedFilterEmails = filterEmails.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filteredSessions = filteredSessions.filter(session => {
+        const sessionEmail = (session.menteeEmail || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(sessionEmail);
+      });
+    }
   }
 
   // Total Sessions Done
@@ -242,35 +358,49 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
     ? activeCandidates.reduce((sum, c) => sum + c.sessionCount, 0) / activeCandidates.length
     : 0;
 
-  // Average feedback score (overall) - using mentorFeedback (ratings from mentors about mentees)
-  const feedbackScores = completedSessions
-    .map(s => {
-      const feedback = s.mentorFeedback; // Use mentorFeedback (from candidate feedback sheet)
-      if (!feedback) return null;
-      const num = parseFloat(String(feedback).replace(/[^0-9.]/g, ''));
-      return (!isNaN(num) && num > 0 && num <= 5) ? num : null;
-    })
-    .filter(f => f !== null && f !== undefined) as number[];
+  // Average feedback score - read directly from column M (Average) in candidate feedbacks
+  const feedbackScores: number[] = [];
+  
+  if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
+    // Get all keys from first feedback to find the Average column
+    const firstFeedback = candidateFeedbacks[0];
+    const allKeys = Object.keys(firstFeedback);
+    
+    // Column M is the 13th column (index 12), but we need to find it by name
+    // Try to find column that contains "average" (case insensitive)
+    let averageKey: string | null = null;
+    for (const key of allKeys) {
+      if (key.toLowerCase().includes('average') || key.toLowerCase() === 'avg') {
+        averageKey = key;
+        break;
+      }
+    }
+    
+    // If not found by name, try column M (13th column, index 12)
+    if (!averageKey && allKeys.length > 12) {
+      averageKey = allKeys[12]; // Column M (0-indexed: 12)
+    }
+    
+    if (!averageKey) {
+      console.error('Could not find Average column. Available columns:', allKeys);
+    }
+    
+    candidateFeedbacks.forEach((feedback) => {
+      if (averageKey) {
+        const averageValue = feedback[averageKey];
+        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+          const avgRating = parseFloat(String(averageValue));
+          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+            feedbackScores.push(avgRating);
+          }
+        }
+      }
+    });
+  }
   
   const avgFeedbackScore = feedbackScores.length > 0
     ? feedbackScores.reduce((a, b) => a + b, 0) / feedbackScores.length
     : 0;
-
-  // Debug logging
-  if (completedSessions.length > 0) {
-    const sessionsWithFeedback = completedSessions.filter(s => s.mentorFeedback && s.mentorFeedback !== '');
-    console.log('Avg Feedback Score calculation:', {
-      totalCompletedSessions: completedSessions.length,
-      sessionsWithFeedbackField: sessionsWithFeedback.length,
-      validFeedbackScores: feedbackScores.length,
-      avgFeedbackScore,
-      sampleFeedbacks: sessionsWithFeedback.slice(0, 5).map(s => ({ 
-        date: s.date, 
-        mentorFeedback: s.mentorFeedback,
-        parsed: parseFloat(String(s.mentorFeedback).replace(/[^0-9.]/g, ''))
-      }))
-    });
-  }
 
   // Calculate average sessions per week
   // Use ALL sessions (not just filtered) to calculate weeks, but use completed sessions for count
@@ -434,11 +564,79 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
   const top10BySessionsCount = Math.ceil(sortedBySessions.length * 0.1);
   const top10BySessions = top10BySessionsCount > 0 ? sortedBySessions.slice(0, top10BySessionsCount) : [];
 
-  // Top 10% candidates by rating (return list)
-  const candidatesWithRatings = allCandidateStats.filter(c => c.avgFeedback > 0);
-  const sortedByRating = [...candidatesWithRatings].sort((a, b) => b.avgFeedback - a.avgFeedback);
-  const top10ByRatingCount = Math.ceil(sortedByRating.length * 0.1);
-  const top10ByRating = top10ByRatingCount > 0 ? sortedByRating.slice(0, top10ByRatingCount) : [];
+  // Top 10% candidates by rating - calculate from Candidate Feedback sheet
+  let top10ByRating: CandidateSessionStats[] = [];
+  if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
+    // Group feedbacks by candidate email/name and calculate average rating
+    const candidateRatingMap = new Map<string, { name: string; email: string; ratings: number[]; count: number }>();
+    
+    candidateFeedbacks.forEach((feedback) => {
+      const candidateName = feedback['Candidate Name'] || feedback['candidateName'] || '';
+      const candidateEmail = feedback['Candidate Email'] || feedback['candidateEmail'] || '';
+      const averageValue = feedback['Average'] || feedback['average'];
+      
+      if (candidateName || candidateEmail) {
+        const key = (candidateEmail || candidateName).toLowerCase().trim();
+        if (!candidateRatingMap.has(key)) {
+          candidateRatingMap.set(key, {
+            name: candidateName,
+            email: candidateEmail,
+            ratings: [],
+            count: 0
+          });
+        }
+        
+        const candidateData = candidateRatingMap.get(key)!;
+        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+          const avgRating = parseFloat(String(averageValue));
+          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+            candidateData.ratings.push(avgRating);
+            candidateData.count++;
+          }
+        }
+      }
+    });
+    
+    // Calculate average for each candidate and create CandidateSessionStats
+    const candidatesWithRatings: CandidateSessionStats[] = [];
+    candidateRatingMap.forEach((data, key) => {
+      if (data.ratings.length > 0) {
+        const avgRating = data.ratings.reduce((a, b) => a + b, 0) / data.ratings.length;
+        // Find matching candidate stats to get session count
+        const matchingStats = allCandidateStats.find(c => 
+          (c.email && c.email.toLowerCase().trim() === key) ||
+          (c.name && c.name.toLowerCase().trim() === key)
+        );
+        
+        candidatesWithRatings.push({
+          name: data.name || matchingStats?.name || 'Unknown',
+          email: data.email || matchingStats?.email || '',
+          sessionCount: matchingStats?.sessionCount || 0,
+          totalSessionsBooked: matchingStats?.totalSessionsBooked || 0,
+          avgFeedback: avgRating,
+          feedbackCount: data.count,
+          sessionsCancelled: matchingStats?.sessionsCancelled || 0,
+          sessionsNoShow: matchingStats?.sessionsNoShow || 0,
+          completedSessions: matchingStats?.completedSessions || 0,
+          firstSessionDate: matchingStats?.firstSessionDate || '',
+          lastSessionDate: matchingStats?.lastSessionDate || '',
+          uniqueMentors: matchingStats?.uniqueMentors || 0,
+          completionRate: matchingStats?.completionRate || 0,
+        });
+      }
+    });
+    
+    // Sort by average rating and take top 10%
+    const sortedByRating = [...candidatesWithRatings].sort((a, b) => b.avgFeedback - a.avgFeedback);
+    const top10ByRatingCount = Math.ceil(sortedByRating.length * 0.1);
+    top10ByRating = top10ByRatingCount > 0 ? sortedByRating.slice(0, top10ByRatingCount) : [];
+  } else {
+    // Fallback to old method if no candidateFeedbacks
+    const candidatesWithRatings = allCandidateStats.filter(c => c.avgFeedback > 0);
+    const sortedByRating = [...candidatesWithRatings].sort((a, b) => b.avgFeedback - a.avgFeedback);
+    const top10ByRatingCount = Math.ceil(sortedByRating.length * 0.1);
+    top10ByRating = top10ByRatingCount > 0 ? sortedByRating.slice(0, top10ByRatingCount) : [];
+  }
 
   // Bottom 10% and 25% candidates by feedback (return lists)
   const candidatesWithFeedback = allCandidateStats.filter(c => c.feedbackCount > 0);
@@ -462,18 +660,26 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
 
   // Cancelled and No-shows (only mentee/candidate no-shows for mentee metrics)
   const cancelledSessions = filteredSessions.filter(
-    (s) => normalizeSessionStatus(s.sessionStatus) === 'cancelled'
+    (s) => normalizeSessionStatus(s.sessionStatus) === 'mentee_cancelled'
   );
   const noShowSessions = filteredSessions.filter((s) => {
     const status = normalizeSessionStatus(s.sessionStatus);
     return status === 'mentee_no_show'; // Only count mentee/candidate no-shows
   });
 
+  const rescheduledSessions = filteredSessions.filter((s) => {
+    const rawStatus = (s.sessionStatus || '').toLowerCase().trim();
+    // Only count mentee rescheduled (not mentor or admin)
+    return rawStatus.includes('mentee') && rawStatus.includes('reschedule');
+  });
+
   const totalSessionsCancelled = cancelledSessions.length;
   const totalNoShows = noShowSessions.length;
+  const totalSessionsRescheduled = rescheduledSessions.length;
 
   const candidatesCancelled = new Set(cancelledSessions.map(s => s.menteeEmail)).size;
   const candidatesNoShow = new Set(noShowSessions.map(s => s.menteeEmail)).size;
+  const candidatesRescheduled = new Set(rescheduledSessions.map(s => s.menteeEmail)).size;
 
   return {
     totalSessionsDone,
@@ -491,8 +697,10 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
     bottom25Feedback,
     candidatesNoSessions,
     totalSessionsCancelled,
+    totalSessionsRescheduled,
     totalNoShows,
     candidatesCancelled,
+    candidatesRescheduled,
     candidatesNoShow,
   };
 }
@@ -540,7 +748,7 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
     const status = normalizeSessionStatus(session.sessionStatus);
     if (status === 'completed') {
       stats.completedSessions++;
-    } else if (status === 'cancelled') {
+    } else if (status === 'mentee_cancelled') {
       stats.sessionsCancelled++;
     } else if (status === 'mentee_no_show') {
       // Only count mentee/candidate no-shows for candidate stats
@@ -742,13 +950,19 @@ export function calculateMentorSessionStats(
       case 'completed':
         stats.completed++;
         break;
-      case 'cancelled':
+      case 'mentor_cancelled':
+      case 'mentee_cancelled':
+      case 'admin_cancelled':
+      case 'unknown_cancelled':
         stats.cancelled++;
         break;
       case 'mentor_no_show':
         stats.mentorNoShow++;
         break;
-      case 'rescheduled':
+      case 'mentor_rescheduled':
+      case 'mentee_rescheduled':
+      case 'admin_rescheduled':
+      case 'unknown_rescheduled':
         stats.rescheduled++;
         break;
       case 'pending':

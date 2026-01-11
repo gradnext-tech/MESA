@@ -8,6 +8,8 @@ interface DataContextType {
   setSessions: (sessions: Session[]) => void;
   mentees: Mentee[];
   setMentees: (mentees: Mentee[]) => void;
+  candidateFeedbacks: any[];
+  setCandidateFeedbacks: (feedbacks: any[]) => void;
   hasData: boolean;
 }
 
@@ -16,6 +18,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [mentees, setMentees] = useState<Mentee[]>([]);
+  const [candidateFeedbacks, setCandidateFeedbacks] = useState<any[]>([]);
 
   return (
     <DataContext.Provider
@@ -24,6 +27,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSessions,
         mentees,
         setMentees,
+        candidateFeedbacks,
+        setCandidateFeedbacks,
         hasData: sessions.length > 0,
       }}
     >
