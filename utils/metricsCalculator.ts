@@ -330,13 +330,13 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
     
     filteredSessions = filteredSessions.filter(session => {
       try {
-        let sessionDate: Date;
-        try {
-          sessionDate = parseISO(session.date);
-        } catch {
-          sessionDate = new Date(session.date);
-        }
-        return !isNaN(sessionDate.getTime()) && sessionDate >= weekStart && sessionDate <= weekEnd;
+        const sessionDate = parseSessionDate(session.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(weekStart),
+          end: startOfDay(weekEnd),
+        });
       } catch {
         return false;
       }
