@@ -4,6 +4,7 @@ import React from 'react';
 import { X, Calendar, Clock, Star, CheckCircle, XCircle, AlertCircle, Mail, Phone } from 'lucide-react';
 import { Session } from '@/types';
 import { parseISO, format } from 'date-fns';
+import { normalizeSessionStatus } from '@/utils/metricsCalculator';
 
 interface DetailModalProps {
   isOpen: boolean;
@@ -28,8 +29,27 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  // Filter out mentor-side disruptions for mentee dashboard
+  // Mentee dashboard should only show mentee-side disruptions, not mentor-side ones
+  const filteredSessions = React.useMemo(() => {
+    if (type === 'mentee') {
+      return sessions.filter(s => {
+        const normalized = normalizeSessionStatus(s.sessionStatus);
+        // Exclude mentor-side disruptions
+        return (
+          normalized !== 'mentor_cancelled' &&
+          normalized !== 'mentor_no_show' &&
+          normalized !== 'mentor_rescheduled' &&
+          normalized !== 'admin_cancelled' &&
+          normalized !== 'admin_rescheduled'
+        );
+      });
+    }
+    return sessions;
+  }, [sessions, type]);
+
   // Sort sessions by date (most recent first)
-  const sortedSessions = [...sessions].sort((a, b) => {
+  const sortedSessions = [...filteredSessions].sort((a, b) => {
     try {
       const dateA = parseISO(a.date);
       const dateB = parseISO(b.date);
@@ -282,7 +302,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
               <Calendar className="w-5 h-5 text-[#22C55E]" />
               <div>
                 <p className="text-xs text-gray-400">Total Sessions</p>
-                <p className="text-sm text-white">{sessions.length}</p>
+                <p className="text-sm text-white">{filteredSessions.length}</p>
               </div>
             </div>
           </div>
@@ -456,7 +476,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           <div className="rounded-lg p-4 border" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
             <h3 className="text-lg font-semibold text-white mb-3 flex items-center">
               <Calendar className="w-5 h-5 mr-2 text-[#22C55E]" />
-              All Sessions ({sessions.length})
+              All Sessions ({filteredSessions.length})
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full">

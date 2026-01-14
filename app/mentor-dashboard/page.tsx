@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
-import { calculateMentorMetrics, calculateMentorSessionStats } from '@/utils/metricsCalculator';
+import { calculateMentorMetrics, calculateMentorSessionStats, normalizeSessionStatus, parseSessionDate } from '@/utils/metricsCalculator';
 import { MetricCard } from '@/components/MetricCard';
 import { DetailModal } from '@/components/DetailModal';
 import { MentorMetrics } from '@/types';
@@ -18,7 +18,7 @@ import {
   Filter,
   RefreshCw,
 } from 'lucide-react';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, parseISO, isWithinInterval, startOfDay } from 'date-fns';
 import Link from 'next/link';
 import {
   BarChart,
@@ -209,7 +209,7 @@ function getDateFromWeek(year: number, week: number): Date {
 }
 
 export default function MentorDashboard() {
-  const { sessions, hasData, setSessions, setMentees } = useData();
+  const { sessions, hasData, setSessions, setMentees, mentorFeedbacks, setMentorFeedbacks } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedMentor, setSelectedMentor] = useState<MentorMetrics | null>(null);
@@ -241,9 +241,9 @@ export default function MentorDashboard() {
               result.data.candidateFeedbacks || []
             );
             setSessions(parsedSessions);
+            setMentorFeedbacks(result.data.mentorFeedbacks || []);
           }
         } catch (error) {
-          console.warn('Auto-connect error in mentor dashboard:', error);
         }
       };
 
@@ -251,13 +251,302 @@ export default function MentorDashboard() {
     }
   }, [hasData]);
 
+  // Filter sessions based on week/month/mentor filters
+  const filteredSessions = useMemo(() => {
+    let filtered = sessions;
+    
+    // Apply week filter (takes precedence over month filter)
+    if (weekFilter) {
+      const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+      filtered = filtered.filter(s => {
+        try {
+          const sessionDate = parseSessionDate(s.date);
+          if (!sessionDate) return false;
+          const sessionDateNormalized = startOfDay(sessionDate);
+          return isWithinInterval(sessionDateNormalized, {
+            start: startOfDay(weekStart),
+            end: startOfDay(weekEnd),
+          });
+        } catch {
+          return false;
+        }
+      });
+    }
+    // Apply month filter (only if week filter is not set)
+    else if (monthFilter) {
+      const monthDate = new Date(monthFilter + '-01');
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      filtered = filtered.filter(s => {
+        const sessionDate = parseSessionDate(s.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(monthStart),
+          end: startOfDay(monthEnd),
+        });
+      });
+    }
+    
+    // Apply mentor filter
+    if (selectedMentorFilter.length > 0) {
+      const normalizedFilterEmails = selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filtered = filtered.filter(s => {
+        const sessionEmail = (s.mentorEmail || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(sessionEmail);
+      });
+    }
+    
+    return filtered;
+  }, [sessions, weekFilter, monthFilter, selectedMentorFilter]);
+
+  // Filter mentorFeedbacks based on the same filters (for rating calculation)
+  // Directly filter the Mentor Feedbacks filled by candidate sheet
+  const filteredMentorFeedbacks = useMemo(() => {
+    if (!Array.isArray(mentorFeedbacks) || mentorFeedbacks.length === 0) {
+      return [];
+    }
+
+    // If no filters are applied, return all mentorFeedbacks
+    if (!weekFilter && !monthFilter && selectedMentorFilter.length === 0) {
+      return mentorFeedbacks;
+    }
+
+    let filtered = [...mentorFeedbacks]; // Create a copy to avoid mutating original
+
+    // Helper function to extract date from feedback object
+    const getFeedbackDate = (fb: any): string | null => {
+      // Try multiple possible date field names (checking common variations)
+      const dateFields = [
+        'Session Date',
+        'sessionDate',
+        'Date',
+        'date',
+        'Date of Session',
+        'SessionDate',
+        'DATE',
+        'Date of session',
+        'Session date',
+        'Session_Date',
+        'session_date',
+        'Date of session',
+        'Session Date (MM/DD/YYYY)',
+        'Date (MM/DD/YYYY)',
+        'Timestamp',
+        'timestamp',
+        'When was the session?',
+        'Session date and time',
+        'Date/Time',
+        'dateTime',
+        'DateTime'
+      ];
+      
+      // First, try exact field name matches
+      for (const field of dateFields) {
+        const value = fb[field];
+        if (value && typeof value === 'string' && value.trim()) {
+          return value.trim();
+        }
+        // Also try case-insensitive match
+        const lowerField = field.toLowerCase();
+        for (const key in fb) {
+          if (key.toLowerCase() === lowerField && fb[key] && typeof fb[key] === 'string' && fb[key].trim()) {
+            return String(fb[key]).trim();
+          }
+        }
+      }
+      
+      // If no exact match, try to find any field that looks like a date
+      // (contains 'date' or 'time' in the key name)
+      for (const key in fb) {
+        const lowerKey = key.toLowerCase();
+        if ((lowerKey.includes('date') || lowerKey.includes('time')) && fb[key]) {
+          const value = String(fb[key]).trim();
+          if (value && value.length > 0) {
+            // Try to parse it to see if it's a valid date
+            const testDate = parseSessionDate(value);
+            if (testDate) {
+              return value;
+            }
+          }
+        }
+      }
+      
+      return null;
+    };
+
+    // Helper function to extract mentor info from feedback
+    const getMentorInfo = (fb: any): { name: string; email: string } => {
+      const name = (fb['Mentor Name'] || fb['mentorName'] || fb['Mentor'] || fb['mentor'] || '').trim();
+      const email = (fb['Mentor Email'] || fb['mentorEmail'] || fb['Mentor Email ID'] || fb['mentorEmailId'] || '').trim();
+      return { name: name.toLowerCase(), email: email.toLowerCase() };
+    };
+
+    // Apply week filter (takes precedence over month filter)
+    if (weekFilter) {
+      const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+      // Make end date inclusive by using end of day
+      const weekEndInclusive = new Date(weekEnd);
+      weekEndInclusive.setHours(23, 59, 59, 999);
+      
+      // Build a map of mentors who have sessions in the filtered week
+      // Map both email and name for matching
+      const mentorsInFilteredWeek = new Set<string>();
+      const mentorEmailToName = new Map<string, string>();
+      const mentorNameToEmail = new Map<string, string>();
+      
+      filteredSessions.forEach(s => {
+        const email = (s.mentorEmail || '').trim().toLowerCase();
+        const name = (s.mentorName || '').trim().toLowerCase();
+        
+        if (email) {
+          mentorsInFilteredWeek.add(email);
+          if (name) {
+            mentorEmailToName.set(email, name);
+            mentorNameToEmail.set(name, email);
+          }
+        }
+        if (name) {
+          mentorsInFilteredWeek.add(name);
+        }
+      });
+      
+      const beforeCount = filtered.length;
+      let matchedByDate = 0;
+      let matchedByMentor = 0;
+      
+      // Filter feedbacks: match by date first, then by mentor if date doesn't match
+      // This ensures we get feedbacks for sessions in the filtered week
+      filtered = filtered.filter((fb: any) => {
+        const mentorInfo = getMentorInfo(fb);
+        const sessionDateStr = getFeedbackDate(fb);
+        
+        // First, try to match by date (most precise)
+        if (sessionDateStr) {
+          try {
+            const sessionDate = parseSessionDate(sessionDateStr);
+            if (sessionDate) {
+              const sessionTime = sessionDate.getTime();
+              const weekStartTime = weekStart.getTime();
+              const weekEndTime = weekEndInclusive.getTime();
+              
+              // If date is in the week range, include it
+              if (sessionTime >= weekStartTime && sessionTime <= weekEndTime) {
+                matchedByDate++;
+                return true;
+              }
+            }
+          } catch (e) {
+            // Date parsing failed, continue to mentor matching
+          }
+        }
+        
+        // If date doesn't match or is not available, match by mentor
+        // This handles cases where feedback date might differ from session date
+        const mentorMatches = 
+          (mentorInfo.email && mentorsInFilteredWeek.has(mentorInfo.email)) ||
+          (mentorInfo.name && mentorsInFilteredWeek.has(mentorInfo.name)) ||
+          (mentorInfo.email && mentorEmailToName.has(mentorInfo.email) && 
+           mentorsInFilteredWeek.has(mentorEmailToName.get(mentorInfo.email)!)) ||
+          (mentorInfo.name && mentorNameToEmail.has(mentorInfo.name) && 
+           mentorsInFilteredWeek.has(mentorNameToEmail.get(mentorInfo.name)!));
+        
+        if (mentorMatches) {
+          matchedByMentor++;
+          return true;
+        }
+        
+        return false;
+      });
+      
+    }
+    // Apply month filter (only if week filter is not set)
+    else if (monthFilter) {
+      const monthDate = new Date(monthFilter + '-01');
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      const beforeCount = filtered.length;
+      
+      filtered = filtered.filter((fb: any) => {
+        const sessionDateStr = getFeedbackDate(fb);
+        if (!sessionDateStr) {
+          return false;
+        }
+        
+        try {
+          const sessionDate = parseSessionDate(sessionDateStr);
+          if (!sessionDate) {
+            return false;
+          }
+          const sessionDateNormalized = startOfDay(sessionDate);
+          return isWithinInterval(sessionDateNormalized, {
+            start: startOfDay(monthStart),
+            end: startOfDay(monthEnd),
+          });
+        } catch (e) {
+          return false;
+        }
+      });
+      
+    }
+
+    // Apply mentor filter
+    if (selectedMentorFilter.length > 0) {
+      const normalizedFilterEmails = selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      
+      // Build a comprehensive map of mentor names to emails from all sessions
+      const mentorNameEmailMap = new Map<string, string[]>();
+      sessions.forEach(s => {
+        if (s.mentorEmail && s.mentorName) {
+          const email = (s.mentorEmail || '').trim().toLowerCase();
+          const name = (s.mentorName || '').trim().toLowerCase();
+          if (email && name) {
+            if (!mentorNameEmailMap.has(name)) {
+              mentorNameEmailMap.set(name, []);
+            }
+            if (!mentorNameEmailMap.get(name)!.includes(email)) {
+              mentorNameEmailMap.get(name)!.push(email);
+            }
+          }
+        }
+      });
+
+      const beforeCount = filtered.length;
+      filtered = filtered.filter((fb: any) => {
+        const mentorInfo = getMentorInfo(fb);
+        
+        // Check if mentor email matches any selected mentor
+        if (mentorInfo.email && normalizedFilterEmails.includes(mentorInfo.email)) {
+          return true;
+        }
+        
+        // Check if mentor name matches (via name-to-email mapping)
+        if (mentorInfo.name) {
+          const mappedEmails = mentorNameEmailMap.get(mentorInfo.name) || [];
+          return mappedEmails.some(email => normalizedFilterEmails.includes(email));
+        }
+        
+        return false;
+      });
+      
+    }
+    
+    return filtered;
+  }, [mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, sessions, filteredSessions]);
+
   const mentorMetrics = useMemo(() => {
     if (!hasData) {
       return [];
     }
-    const metrics = calculateMentorMetrics(sessions);
+    
+    // For rating calculation, use filteredMentorFeedbacks (respects filters)
+    // For other metrics (sessions done, cancelled, etc.), use filtered sessions
+    const metrics = calculateMentorMetrics(filteredSessions, sessions, filteredMentorFeedbacks);
+    
     return metrics;
-  }, [sessions, hasData]);
+  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks]);
 
   const filteredMentors = useMemo(() => {
     if (!searchTerm) return mentorMetrics;
@@ -281,8 +570,9 @@ export default function MentorDashboard() {
 
   const mentorSessions = useMemo(() => {
     if (!selectedMentor) return [];
-    return sessions.filter(s => s.mentorEmail === selectedMentor.mentorEmail);
-  }, [selectedMentor, sessions]);
+    // Use filteredSessions to respect applied filters
+    return filteredSessions.filter(s => s.mentorEmail === selectedMentor.mentorEmail);
+  }, [selectedMentor, filteredSessions]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -307,6 +597,7 @@ export default function MentorDashboard() {
         const parsedMentees = parseMenteeData(result.data.mentees || []);
         setSessions(parsedSessions);
         setMentees(parsedMentees);
+        setMentorFeedbacks(result.data.mentorFeedbacks || []);
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -314,6 +605,42 @@ export default function MentorDashboard() {
       setIsRefreshing(false);
     }
   };
+
+  // Calculate average daily and weekly sessions
+  const avgDailyAndWeeklySessions = useMemo(() => {
+    if (!hasData || filteredSessions.length === 0) {
+      return { avgDailySessions: 0, avgWeeklySessions: 0 };
+    }
+
+    // Get unique dates and weeks
+    const uniqueDates = new Set<string>();
+    const uniqueWeeks = new Set<string>();
+    
+    filteredSessions.forEach(s => {
+      if (!s.date) return;
+      const sessionDate = parseSessionDate(s.date);
+      if (!sessionDate) return;
+      
+      // Add unique date (YYYY-MM-DD format)
+      const dateKey = format(sessionDate, 'yyyy-MM-dd');
+      uniqueDates.add(dateKey);
+      
+      // Add unique week (Monday of the week)
+      const weekStart = startOfWeek(sessionDate, { weekStartsOn: 1 });
+      const weekKey = format(weekStart, 'yyyy-MM-dd');
+      uniqueWeeks.add(weekKey);
+    });
+
+    const totalSessions = filteredSessions.filter(s => {
+      const status = normalizeSessionStatus(s.sessionStatus);
+      return status === 'completed';
+    }).length;
+
+    const avgDailySessions = uniqueDates.size > 0 ? totalSessions / uniqueDates.size : 0;
+    const avgWeeklySessions = uniqueWeeks.size > 0 ? totalSessions / uniqueWeeks.size : 0;
+
+    return { avgDailySessions, avgWeeklySessions };
+  }, [filteredSessions, hasData]);
 
   // Aggregate metrics
   const aggregateMetrics = useMemo(() => {
@@ -329,11 +656,14 @@ export default function MentorDashboard() {
       };
     }
 
+    const mentorsWithRatings = mentorMetrics.filter(m => m.avgRating > 0);
+    const avgRating = mentorsWithRatings.length > 0
+      ? mentorsWithRatings.reduce((sum, m) => sum + m.avgRating, 0) / mentorsWithRatings.length
+      : 0;
+
     return {
       totalMentors: mentorMetrics.length,
-      avgRating:
-        mentorMetrics.reduce((sum, m) => sum + m.avgRating, 0) /
-        mentorMetrics.length,
+      avgRating,
       totalSessions: mentorMetrics.reduce((sum, m) => sum + m.sessionsDone, 0),
       totalCancelled: mentorMetrics.reduce(
         (sum, m) => sum + m.sessionsCancelled,
@@ -393,8 +723,11 @@ export default function MentorDashboard() {
     if (!hasData) return [];
     // Pass array directly - function now handles both array and string
     const mentorFilter = selectedMentorFilter.length > 0 ? selectedMentorFilter : undefined;
-    return calculateMentorSessionStats(sessions, weekFilter, monthFilter || undefined, mentorFilter);
-  }, [sessions, hasData, weekFilter, monthFilter, selectedMentorFilter]);
+    // Sessions are already filtered by date, so just pass them directly
+    // Pass filteredMentorFeedbacks for direct rating extraction (respects filters)
+    const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, filteredMentorFeedbacks);
+    return stats;
+  }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks]);
 
   if (!hasData) {
     return (
@@ -418,39 +751,126 @@ export default function MentorDashboard() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Mentor Dashboard</h1>
-          <p className="text-gray-300 mt-1">
-            Performance metrics for {aggregateMetrics.totalMentors} mentors
-          </p>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white">Mentor Dashboard</h1>
+            <p className="text-gray-300 mt-1">
+              Performance metrics for {aggregateMetrics.totalMentors} mentors
+            </p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ 
+              backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
+              color: '#fff'
+            }}
+            onMouseEnter={(e) => {
+              if (!isRefreshing) {
+                e.currentTarget.style.backgroundColor = '#16A34A';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isRefreshing) {
+                e.currentTarget.style.backgroundColor = '#22C55E';
+              }
+            }}
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ 
-            backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
-            color: '#fff'
-          }}
-          onMouseEnter={(e) => {
-            if (!isRefreshing) {
-              e.currentTarget.style.backgroundColor = '#16A34A';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isRefreshing) {
-              e.currentTarget.style.backgroundColor = '#22C55E';
-            }
-          }}
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-        </button>
+
+        {/* Filters */}
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Week Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <label className="text-sm text-gray-300 whitespace-nowrap">Week:</label>
+            <input
+              type="week"
+              value={weekFilter ? getWeekInputValue(weekFilter) : ''}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const [year, week] = e.target.value.split('-W');
+                  const date = getDateFromWeek(parseInt(year), parseInt(week));
+                  date.setHours(0, 0, 0, 0);
+                  setWeekFilter(date);
+                  setMonthFilter(''); // Clear month filter when week is selected
+                } else {
+                  setWeekFilter(undefined);
+                }
+              }}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
+              style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
+              onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
+              onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
+            />
+            {weekFilter && (
+              <>
+                <span className="text-xs text-gray-400 whitespace-nowrap">
+                  ({format(startOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d')} - {format(endOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d, yyyy')})
+                </span>
+                <button
+                  onClick={() => setWeekFilter(undefined)}
+                  className="text-xs text-gray-400 hover:text-white px-2"
+                  title="Clear week filter"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+          {/* Month Filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-300 whitespace-nowrap">Month:</label>
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setMonthFilter(e.target.value);
+                  setWeekFilter(undefined); // Clear week filter when month is selected
+                } else {
+                  setMonthFilter('');
+                }
+              }}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
+              style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
+              onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
+              onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
+            />
+            {monthFilter && (
+              <>
+                <span className="text-xs text-gray-400 whitespace-nowrap">
+                  ({format(new Date(monthFilter + '-01'), 'MMM yyyy')})
+                </span>
+                <button
+                  onClick={() => setMonthFilter('')}
+                  className="text-xs text-gray-400 hover:text-white px-2"
+                  title="Clear month filter"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+          {/* Mentor Filter - Multi-select */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-300 whitespace-nowrap">Mentor:</label>
+            <MentorMultiSelect
+              mentors={uniqueMentors}
+              selectedMentors={selectedMentorFilter}
+              onChange={setSelectedMentorFilter}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <MetricCard
           title="Average Rating"
           value={aggregateMetrics.avgRating > 0 ? aggregateMetrics.avgRating.toFixed(2) : 'N/A'}
@@ -464,6 +884,20 @@ export default function MentorDashboard() {
           icon={CheckCircle}
           iconColor="text-[#22C55E]"
           subtitle="Completed sessions"
+        />
+        <MetricCard
+          title="Average Daily Sessions"
+          value={avgDailyAndWeeklySessions.avgDailySessions > 0 ? avgDailyAndWeeklySessions.avgDailySessions.toFixed(2) : '0.00'}
+          icon={Calendar}
+          iconColor="text-[#22C55E]"
+          subtitle="Sessions per day"
+        />
+        <MetricCard
+          title="Average Weekly Sessions"
+          value={avgDailyAndWeeklySessions.avgWeeklySessions > 0 ? avgDailyAndWeeklySessions.avgWeeklySessions.toFixed(2) : '0.00'}
+          icon={TrendingUp}
+          iconColor="text-[#22C55E]"
+          subtitle="Sessions per week"
         />
         <MetricCard
           title="Cancelled/No-Show"
@@ -623,96 +1057,7 @@ export default function MentorDashboard() {
       {/* Mentor Session Statistics Table */}
       <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
         <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">Mentor Session Statistics</h3>
-            <div className="flex items-center gap-4">
-              {/* Week Filter */}
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-gray-400" />
-                <label className="text-sm text-gray-300 whitespace-nowrap">Week:</label>
-                <input
-                  type="week"
-                  value={weekFilter ? getWeekInputValue(weekFilter) : ''}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      // Parse week input (format: YYYY-Www)
-                      const [year, week] = e.target.value.split('-W');
-                      const date = getDateFromWeek(parseInt(year), parseInt(week));
-                      // getDateFromWeek already returns the Monday of the week, but ensure it's normalized
-                      date.setHours(0, 0, 0, 0);
-                      setWeekFilter(date);
-                      // Clear month filter when week is selected
-                      setMonthFilter('');
-                    } else {
-                      setWeekFilter(undefined);
-                    }
-                  }}
-                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
-                  style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
-                  onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
-                />
-                {weekFilter && (
-                  <>
-                    <span className="text-xs text-gray-400 whitespace-nowrap">
-                      ({format(startOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d')} - {format(endOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d, yyyy')})
-                    </span>
-                    <button
-                      onClick={() => setWeekFilter(undefined)}
-                      className="text-xs text-gray-400 hover:text-white px-2"
-                      title="Clear week filter"
-                    >
-                      ✕
-                    </button>
-                  </>
-                )}
-              </div>
-              {/* Month Filter */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-300 whitespace-nowrap">Month:</label>
-                <input
-                  type="month"
-                  value={monthFilter}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setMonthFilter(e.target.value);
-                      // Clear week filter when month is selected
-                      setWeekFilter(undefined);
-                    } else {
-                      setMonthFilter('');
-                    }
-                  }}
-                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
-                  style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
-                  onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
-                  onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
-                />
-                {monthFilter && (
-                  <>
-                    <span className="text-xs text-gray-400 whitespace-nowrap">
-                      ({format(new Date(monthFilter + '-01'), 'MMM yyyy')})
-                    </span>
-                    <button
-                      onClick={() => setMonthFilter('')}
-                      className="text-xs text-gray-400 hover:text-white px-2"
-                      title="Clear month filter"
-                    >
-                      ✕
-                    </button>
-                  </>
-                )}
-              </div>
-              {/* Mentor Filter - Multi-select */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-300 whitespace-nowrap">Mentor:</label>
-                <MentorMultiSelect
-                  mentors={uniqueMentors}
-                  selectedMentors={selectedMentorFilter}
-                  onChange={setSelectedMentorFilter}
-                />
-              </div>
-            </div>
-          </div>
+          <h3 className="text-lg font-semibold text-white">Mentor Session Statistics</h3>
         </div>
 
         <div className="overflow-x-auto">

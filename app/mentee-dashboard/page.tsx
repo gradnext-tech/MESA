@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
-import { calculateMenteeMetrics, getDetailedCandidateAnalytics, parseSessionDate } from '@/utils/metricsCalculator';
+import { calculateMenteeMetrics, getDetailedCandidateAnalytics, parseSessionDate, normalizeSessionStatus } from '@/utils/metricsCalculator';
 import { MetricCard } from '@/components/MetricCard';
 import { DetailModal } from '@/components/DetailModal';
 import { CandidateSessionStats } from '@/types';
@@ -201,7 +201,7 @@ export default function MenteeDashboard() {
   const [selectedMentee, setSelectedMentee] = useState<CandidateSessionStats | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { candidateFeedbacks } = useData();
+  const { candidateFeedbacks, setMentorFeedbacks } = useData();
 
   const menteeMetrics = useMemo(() => {
     if (!hasData) return null;
@@ -269,26 +269,151 @@ export default function MenteeDashboard() {
       });
     }
     
-    return getDetailedCandidateAnalytics(filteredSessions);
-  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter]);
+    // Exclude mentor-side disruptions for mentee dashboard analytics
+    const filteredWithoutMentorDisruptions = filteredSessions.filter(s => {
+      const normalized = normalizeSessionStatus(s.sessionStatus);
+      return (
+        normalized !== 'mentor_cancelled' &&
+        normalized !== 'mentor_no_show' &&
+        normalized !== 'mentor_rescheduled' &&
+        normalized !== 'admin_cancelled' &&
+        normalized !== 'admin_rescheduled'
+      );
+    });
+
+    return getDetailedCandidateAnalytics(filteredWithoutMentorDisruptions, candidateFeedbacks, filteredWithoutMentorDisruptions);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter, candidateFeedbacks]);
 
   // Calculate additional metrics for new cards
   const top10BySessions = useMemo(() => {
-    const sorted = [...candidateAnalytics].sort((a, b) => b.totalSessionsBooked - a.totalSessionsBooked);
+    // Deduplicate by normalized email (case-insensitive)
+    // candidateAnalytics should already be deduplicated, but we do it again for safety
+    const uniqueCandidates = new Map<string, CandidateSessionStats>();
+    
+    candidateAnalytics.forEach(c => {
+      // Skip candidates with 0 sessions
+      if (!c.totalSessionsBooked || c.totalSessionsBooked === 0) return;
+      
+      const normalizedEmail = (c.email || '').trim().toLowerCase();
+      const normalizedName = (c.name || '').trim().toLowerCase();
+      
+      // Skip if no identifier
+      if (!normalizedEmail && !normalizedName) return;
+      
+      // Use email as primary key, fallback to name
+      const key = normalizedEmail || normalizedName;
+      
+      const existing = uniqueCandidates.get(key);
+      if (!existing) {
+        uniqueCandidates.set(key, c);
+      } else {
+        // If duplicate, keep the one with more sessions
+        if (c.totalSessionsBooked > existing.totalSessionsBooked) {
+          uniqueCandidates.set(key, c);
+        } else if (c.totalSessionsBooked === existing.totalSessionsBooked) {
+          // If same sessions, prefer the one with better data
+          if ((c.email && !existing.email) || (c.name && !existing.name)) {
+            uniqueCandidates.set(key, c);
+          }
+        }
+      }
+    });
+    
+    const sorted = Array.from(uniqueCandidates.values())
+      .sort((a, b) => {
+        // First sort by totalSessionsBooked (descending)
+        if (b.totalSessionsBooked !== a.totalSessionsBooked) {
+          return b.totalSessionsBooked - a.totalSessionsBooked;
+        }
+        // If equal, sort by name alphabetically
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    
+    
     return sorted.slice(0, 10);
   }, [candidateAnalytics]);
 
   const bottom10BySessions = useMemo(() => {
-    const sorted = [...candidateAnalytics].sort((a, b) => a.totalSessionsBooked - b.totalSessionsBooked);
+    // Deduplicate by normalized email (case-insensitive)
+    const uniqueCandidates = new Map<string, CandidateSessionStats>();
+    candidateAnalytics.forEach(c => {
+      const normalizedEmail = (c.email || '').trim().toLowerCase();
+      if (!normalizedEmail) return;
+      
+      const existing = uniqueCandidates.get(normalizedEmail);
+      if (!existing || c.totalSessionsBooked < existing.totalSessionsBooked) {
+        uniqueCandidates.set(normalizedEmail, c);
+      }
+    });
+    
+    const sorted = Array.from(uniqueCandidates.values())
+      .sort((a, b) => {
+        // First sort by totalSessionsBooked (ascending)
+        if (a.totalSessionsBooked !== b.totalSessionsBooked) {
+          return a.totalSessionsBooked - b.totalSessionsBooked;
+        }
+        // If equal, sort by name alphabetically
+        return (a.name || '').localeCompare(b.name || '');
+      });
     return sorted.slice(0, 10);
   }, [candidateAnalytics]);
 
   const candidatesHighRating = useMemo(() => {
-    return candidateAnalytics.filter(c => c.avgFeedback > 4.75 && c.avgFeedback > 0);
+    // Deduplicate by normalized email (case-insensitive)
+    const uniqueCandidates = new Map<string, CandidateSessionStats>();
+    candidateAnalytics.forEach(c => {
+      if (c.avgFeedback > 4.75 && c.avgFeedback > 0) {
+        const normalizedEmail = (c.email || '').trim().toLowerCase();
+        if (!normalizedEmail) return;
+        
+        const existing = uniqueCandidates.get(normalizedEmail);
+        if (!existing || c.avgFeedback > existing.avgFeedback) {
+          uniqueCandidates.set(normalizedEmail, c);
+        }
+      }
+    });
+    
+    // Sort by rating descending (highest first)
+    const sorted = Array.from(uniqueCandidates.values())
+      .sort((a, b) => {
+        // First sort by avgFeedback (descending)
+        if (b.avgFeedback !== a.avgFeedback) {
+          return b.avgFeedback - a.avgFeedback;
+        }
+        // If equal, sort by name alphabetically
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    
+    return sorted;
   }, [candidateAnalytics]);
 
   const candidatesLowRating = useMemo(() => {
-    return candidateAnalytics.filter(c => c.avgFeedback > 0 && c.avgFeedback < 3.5);
+    // Deduplicate by normalized email (case-insensitive)
+    const uniqueCandidates = new Map<string, CandidateSessionStats>();
+    candidateAnalytics.forEach(c => {
+      if (c.avgFeedback > 0 && c.avgFeedback < 3.5) {
+        const normalizedEmail = (c.email || '').trim().toLowerCase();
+        if (!normalizedEmail) return;
+        
+        const existing = uniqueCandidates.get(normalizedEmail);
+        if (!existing || c.avgFeedback < existing.avgFeedback) {
+          uniqueCandidates.set(normalizedEmail, c);
+        }
+      }
+    });
+    
+    // Sort by rating ascending (lowest first)
+    const sorted = Array.from(uniqueCandidates.values())
+      .sort((a, b) => {
+        // First sort by avgFeedback (ascending)
+        if (a.avgFeedback !== b.avgFeedback) {
+          return a.avgFeedback - b.avgFeedback;
+        }
+        // If equal, sort by name alphabetically
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    
+    return sorted;
   }, [candidateAnalytics]);
 
   const filteredCandidates = useMemo(() => {
@@ -340,6 +465,7 @@ export default function MenteeDashboard() {
         setSessions(parsedSessions);
         setMentees(parsedMentees);
         setCandidateFeedbacks(result.data.candidateFeedbacks || []);
+        setMentorFeedbacks(result.data.mentorFeedbacks || []);
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -357,7 +483,22 @@ export default function MenteeDashboard() {
     // Apply filters to sessions for weekwise chart
     let filteredSessions = sessions;
     
-    if (monthFilter) {
+    // Apply week filter (takes precedence over month filter)
+    if (weekFilter) {
+      const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+      filteredSessions = filteredSessions.filter(s => {
+        const sessionDate = parseSessionDate(s.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(weekStart),
+          end: startOfDay(weekEnd),
+        });
+      });
+    }
+    // Apply month filter (only if week filter is not set)
+    else if (monthFilter) {
       const monthDate = new Date(monthFilter + '-01');
       const monthStart = startOfMonth(monthDate);
       const monthEnd = endOfMonth(monthDate);
@@ -372,6 +513,7 @@ export default function MenteeDashboard() {
       });
     }
     
+    // Apply mentee filter
     if (selectedMenteeFilter.length > 0) {
       const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filteredSessions = filteredSessions.filter(s => {
@@ -379,6 +521,18 @@ export default function MenteeDashboard() {
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
+    
+    // Exclude mentor-side disruptions for mentee dashboard
+    filteredSessions = filteredSessions.filter(s => {
+      const normalized = normalizeSessionStatus(s.sessionStatus);
+      return (
+        normalized !== 'mentor_cancelled' &&
+        normalized !== 'mentor_no_show' &&
+        normalized !== 'mentor_rescheduled' &&
+        normalized !== 'admin_cancelled' &&
+        normalized !== 'admin_rescheduled'
+      );
+    });
     
     // Get all session dates with consistent parsing
     const sessionDates: Date[] = [];
@@ -445,7 +599,7 @@ export default function MenteeDashboard() {
     
     // Return all weeks (including those with 0 sessions) for complete trend visualization
     return weekData;
-  }, [sessions, hasData, monthFilter, selectedMenteeFilter]);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter]);
 
   if (!hasData || !menteeMetrics) {
     return (
@@ -472,9 +626,9 @@ export default function MenteeDashboard() {
       <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-            <h1 className="text-3xl font-bold text-white">Mentee Dashboard</h1>
+            <h1 className="text-3xl font-bold text-white">Student Dashboard</h1>
             <p className="text-gray-300 mt-1">
-            Comprehensive analytics for mentee engagement and performance
+            Comprehensive analytics for student engagement and performance
           </p>
           </div>
           <button
@@ -587,8 +741,8 @@ export default function MenteeDashboard() {
         </div>
       </div>
 
-      {/* Primary Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Primary Metrics - 3 cards per row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <MetricCard
           title="Total Sessions Done"
           value={menteeMetrics.totalSessionsDone}
@@ -598,14 +752,34 @@ export default function MenteeDashboard() {
         />
         <MetricCard
           title="# of Unique Candidates"
-          value={menteeMetrics.candidatesBooking}
+          value={mentees.length}
           icon={Users}
           iconColor="text-[#22C55E]"
-          subtitle="Total candidates"
+          subtitle="Total candidates from Mentee Directory"
         />
         <MetricCard
-          title="Sessions Cancelled / Rescheduled / No Show"
-          value={`${menteeMetrics.totalSessionsCancelled} / ${menteeMetrics.totalSessionsRescheduled} / ${menteeMetrics.totalNoShows}`}
+          title="Avg Sessions Per Candidate"
+          value={mentees.length > 0 ? (menteeMetrics.totalSessionsDone / mentees.length).toFixed(2) : '0.00'}
+          icon={TrendingUp}
+          iconColor="text-[#22C55E]"
+          subtitle="Total Sessions / Total Candidates"
+        />
+        <MetricCard
+          title="Avg Sessions Per Active Candidate"
+          value={candidateAnalytics.filter(c => c.totalSessionsBooked > 0).length > 0 
+            ? (menteeMetrics.totalSessionsDone / candidateAnalytics.filter(c => c.totalSessionsBooked > 0).length).toFixed(2) 
+            : '0.00'}
+          icon={TrendingUp}
+          iconColor="text-[#22C55E]"
+          subtitle="Total Sessions / Active Candidates"
+        />
+        <MetricCard
+          title="Total Sessions Cancelled / Rescheduled / No Show"
+          value={
+            menteeMetrics.totalSessionsCancelled +
+            menteeMetrics.totalSessionsRescheduled +
+            menteeMetrics.totalNoShows
+          }
           icon={XCircle}
           iconColor="text-red-500"
           subtitle="Disruptions"
@@ -636,21 +810,25 @@ export default function MenteeDashboard() {
             {top10BySessions.length === 0 ? (
               <p className="text-gray-400 text-sm">No candidates found</p>
             ) : (
-              top10BySessions.map((candidate, index) => (
-                <div
-                  key={candidate.email}
-                  className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
-                  onClick={() => handleMenteeClick(candidate)}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-[#22C55E] w-6">#{index + 1}</span>
-                    <div>
-                      <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
-                      <p className="text-xs text-gray-400">{candidate.totalSessionsBooked} sessions</p>
+              top10BySessions.map((candidate, index) => {
+                // Create a unique key that's case-insensitive
+                const uniqueKey = `${(candidate.email || '').toLowerCase()}_${(candidate.name || '').toLowerCase()}_${index}`;
+                return (
+                  <div
+                    key={uniqueKey}
+                    className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
+                    onClick={() => handleMenteeClick(candidate)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-[#22C55E] w-6">#{index + 1}</span>
+                      <div>
+                        <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
+                        <p className="text-xs text-gray-400">{candidate.totalSessionsBooked} sessions</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
       </div>

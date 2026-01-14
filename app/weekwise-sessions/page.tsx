@@ -170,13 +170,28 @@ export default function WeekwiseSessions() {
     });
   }, [sessions, selectedWeek]);
 
-  // Get mentor feedback status for a session
+  // Get mentor feedback status for a session - use column N from MESA sheet
   const getMentorFeedbackStatus = (session: any): string => {
-    if (!session.mentorFeedback || session.mentorFeedback === '' || session.mentorFeedback === 'N/A') {
+    // First, check column N (mentorFeedbackStatus) from MESA sheet
+    const feedbackStatus = (session.mentorFeedbackStatus || '').trim();
+    if (feedbackStatus) {
+      const lowerStatus = feedbackStatus.toLowerCase();
+      if (lowerStatus === 'filled' || lowerStatus === 'yes' || lowerStatus === 'done' || lowerStatus === 'complete') {
+        return 'Filled';
+      }
+      if (lowerStatus === 'not filled' || lowerStatus === 'no' || lowerStatus === 'pending' || lowerStatus === '') {
+        return 'Not Filled';
+      }
+      // If it's a specific status, return it as-is (capitalized)
+      return feedbackStatus.charAt(0).toUpperCase() + feedbackStatus.slice(1).toLowerCase();
+    }
+    
+    // Fallback: Check menteeFeedback if column N is not available
+    if (!session.menteeFeedback || session.menteeFeedback === '' || session.menteeFeedback === 'N/A') {
       return 'Not Filled';
     }
     // Check if it's a valid number/rating
-    const feedbackValue = parseFloat(String(session.mentorFeedback).replace(/[^0-9.]/g, ''));
+    const feedbackValue = parseFloat(String(session.menteeFeedback).replace(/[^0-9.]/g, ''));
     if (!isNaN(feedbackValue) && feedbackValue > 0) {
       return 'Filled';
     }
@@ -207,7 +222,7 @@ export default function WeekwiseSessions() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Weekwise Session Statistics</h1>
+          <h1 className="text-3xl font-bold text-white">All Session Details</h1>
           <p className="text-gray-300 mt-1">
             Overview of all sessions organized by week (Monday to Sunday)
           </p>
@@ -249,7 +264,7 @@ export default function WeekwiseSessions() {
                 <Calendar className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-white">Weekwise Session Overview</h3>
+                <h3 className="text-xl font-bold text-white">Session Overview by Week</h3>
                 <p className="text-xs text-gray-400 mt-1">All sessions grouped by week (Monday to Sunday)</p>
               </div>
             </div>
@@ -449,18 +464,18 @@ export default function WeekwiseSessions() {
                     const feedbackStatus = getMentorFeedbackStatus(session);
                     const sessionDate = parseSessionDate(session.date);
                     
-                    // Get status display color
-                    let statusColor = '#86EFAC'; // Default green
+                    // Get status display color - using dull/muted colors for less contrast
+                    let statusColor = '#6B7280'; // Default muted gray
                     if (status === 'completed') {
-                      statusColor = '#22C55E';
+                      statusColor = '#4ADE80'; // Muted green
                     } else if (status.includes('cancelled')) {
-                      statusColor = '#EF4444';
+                      statusColor = '#F87171'; // Muted red
                     } else if (status.includes('rescheduled')) {
-                      statusColor = '#F59E0B';
+                      statusColor = '#FBBF24'; // Muted yellow/amber
                     } else if (status.includes('no_show')) {
-                      statusColor = '#F97316';
+                      statusColor = '#FB923C'; // Muted orange
                     } else if (status === 'pending') {
-                      statusColor = '#6B7280';
+                      statusColor = '#9CA3AF'; // Muted gray
                     }
 
                     return (

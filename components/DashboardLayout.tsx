@@ -15,8 +15,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
   const navItems = [
     { href: '/', label: 'Home', icon: LayoutDashboard },
     { href: '/mentor-dashboard', label: 'Mentor Dashboard', icon: UserCheck },
-    { href: '/mentee-dashboard', label: 'Mentee Dashboard', icon: Users },
-    { href: '/weekwise-sessions', label: 'Weekwise Sessions', icon: Calendar },
+    { href: '/mentee-dashboard', label: 'Student Dashboard', icon: Users },
+    { href: '/weekwise-sessions', label: 'All Session Details', icon: Calendar },
   ];
 
   return (

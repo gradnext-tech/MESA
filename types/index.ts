@@ -16,6 +16,7 @@ export interface Session {
   sessionStatus: string;
   mentorFeedback: number | string;
   menteeFeedback: number | string;
+  mentorFeedbackStatus: string; // Column N from MESA sheet - feedback status (Filled/Not Filled)
   comments: string;
   paymentStatus: string;
 }
