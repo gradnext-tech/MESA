@@ -541,12 +541,18 @@ export default function MentorDashboard() {
       return [];
     }
     
-    // For rating calculation, use filteredMentorFeedbacks (respects filters)
+    // For rating calculation, use filteredMentorFeedbacks if available (respects filters)
+    // If filteredMentorFeedbacks is empty but mentorFeedbacks exists, use mentorFeedbacks
+    // This ensures ratings are calculated even when filters might filter out all feedbacks
+    const feedbacksForRating = filteredMentorFeedbacks.length > 0 
+      ? filteredMentorFeedbacks 
+      : (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined);
+    
     // For other metrics (sessions done, cancelled, etc.), use filtered sessions
-    const metrics = calculateMentorMetrics(filteredSessions, sessions, filteredMentorFeedbacks);
+    const metrics = calculateMentorMetrics(filteredSessions, sessions, feedbacksForRating);
     
     return metrics;
-  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks]);
+  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks]);
 
   const filteredMentors = useMemo(() => {
     if (!searchTerm) return mentorMetrics;
@@ -724,10 +730,13 @@ export default function MentorDashboard() {
     // Pass array directly - function now handles both array and string
     const mentorFilter = selectedMentorFilter.length > 0 ? selectedMentorFilter : undefined;
     // Sessions are already filtered by date, so just pass them directly
-    // Pass filteredMentorFeedbacks for direct rating extraction (respects filters)
-    const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, filteredMentorFeedbacks);
+    // Pass filteredMentorFeedbacks if available, otherwise fallback to all mentorFeedbacks
+    const feedbacksForRating = filteredMentorFeedbacks.length > 0 
+      ? filteredMentorFeedbacks 
+      : (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined);
+    const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, feedbacksForRating);
     return stats;
-  }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks]);
+  }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks, mentorFeedbacks]);
 
   if (!hasData) {
     return (

@@ -235,9 +235,9 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
           if (fbMentorName && normalizedMentorName) {
             // Check if either name contains the other (for handling middle names, etc.)
             if (fbMentorName.includes(normalizedMentorName) || normalizedMentorName.includes(fbMentorName)) {
-            // Only match if they share the same first and last name parts
-            const fbNameParts = fbMentorName.split(/\s+/).filter((p: string) => p.length > 0);
-            const sessionNameParts = normalizedMentorName.split(/\s+/).filter((p: string) => p.length > 0);
+              // Only match if they share the same first and last name parts
+              const fbNameParts = fbMentorName.split(/\s+/).filter((p: string) => p.length > 0);
+              const sessionNameParts = normalizedMentorName.split(/\s+/).filter((p: string) => p.length > 0);
               if (fbNameParts.length > 0 && sessionNameParts.length > 0) {
                 // Check if first and last parts match
                 if (fbNameParts[0] === sessionNameParts[0] && 
