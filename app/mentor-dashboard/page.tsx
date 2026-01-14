@@ -304,6 +304,7 @@ export default function MentorDashboard() {
   // Filter mentorFeedbacks based on the same filters (for rating calculation)
   // Directly filter the Mentor Feedbacks filled by candidate sheet
   const filteredMentorFeedbacks = useMemo(() => {
+    // Always return an array, even if mentorFeedbacks is empty or undefined
     if (!Array.isArray(mentorFeedbacks) || mentorFeedbacks.length === 0) {
       return [];
     }
@@ -541,18 +542,23 @@ export default function MentorDashboard() {
       return [];
     }
     
-    // For rating calculation, use filteredMentorFeedbacks if available (respects filters)
-    // If filteredMentorFeedbacks is empty but mentorFeedbacks exists, use mentorFeedbacks
-    // This ensures ratings are calculated even when filters might filter out all feedbacks
-    const feedbacksForRating = filteredMentorFeedbacks.length > 0 
-      ? filteredMentorFeedbacks 
-      : (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined);
+    // For rating calculation, use filteredMentorFeedbacks when filters are applied
+    // Otherwise use all mentorFeedbacks
+    // Ensure we always pass an array (never undefined) - empty array is fine
+    let feedbacksForRating: any[] | undefined;
+    if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+      // Filters are applied - use filtered feedbacks
+      feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : [];
+    } else {
+      // No filters - use all mentorFeedbacks
+      feedbacksForRating = Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined;
+    }
     
     // For other metrics (sessions done, cancelled, etc.), use filtered sessions
     const metrics = calculateMentorMetrics(filteredSessions, sessions, feedbacksForRating);
     
     return metrics;
-  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks]);
+  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter]);
 
   const filteredMentors = useMemo(() => {
     if (!searchTerm) return mentorMetrics;
@@ -730,10 +736,15 @@ export default function MentorDashboard() {
     // Pass array directly - function now handles both array and string
     const mentorFilter = selectedMentorFilter.length > 0 ? selectedMentorFilter : undefined;
     // Sessions are already filtered by date, so just pass them directly
-    // Pass filteredMentorFeedbacks if available, otherwise fallback to all mentorFeedbacks
-    const feedbacksForRating = filteredMentorFeedbacks.length > 0 
-      ? filteredMentorFeedbacks 
-      : (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined);
+    // Use filteredMentorFeedbacks when filters are applied, otherwise use all mentorFeedbacks
+    let feedbacksForRating: any[] | undefined;
+    if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+      // Filters are applied - use filtered feedbacks
+      feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : [];
+    } else {
+      // No filters - use all mentorFeedbacks
+      feedbacksForRating = Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined;
+    }
     const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, feedbacksForRating);
     return stats;
   }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks, mentorFeedbacks]);

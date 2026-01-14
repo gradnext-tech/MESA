@@ -180,7 +180,8 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
 
   // Calculate average ratings directly from mentorFeedbacks sheet (if provided)
   // This is the primary source for mentor ratings - feedbacks from candidates about mentors
-  if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
+  // Check if mentorFeedbacks is provided and is a non-empty array
+  if (mentorFeedbacks && Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
     // Rating column name in the mentor feedbacks sheet
     const ratingColumnName = 'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?';
     
