@@ -17,10 +17,10 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
   // Only show navigation items for admin users
   // MESA users should not see any navigation tabs
   const navItems = accessLevel === 'admin' ? [
-    { href: '/', label: 'Home', icon: LayoutDashboard },
-    { href: '/mentor-dashboard', label: 'Mentor Dashboard', icon: UserCheck },
-    { href: '/mentee-dashboard', label: 'Student Dashboard', icon: Users },
-    { href: '/weekwise-sessions', label: 'All Session Details', icon: Calendar },
+    { href: './', label: 'Home', icon: LayoutDashboard },
+    { href: 'mentor-dashboard', label: 'Mentor Dashboard', icon: UserCheck },
+    { href: 'mentee-dashboard', label: 'Student Dashboard', icon: Users },
+    { href: 'weekwise-sessions', label: 'All Session Details', icon: Calendar },
   ] : [];
 
   // Don't show navigation on login page
@@ -34,7 +34,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
             <div className="flex justify-between h-16">
               <div className="flex items-center">
                 {accessLevel === 'admin' ? (
-                  <Link href="/" className="flex-shrink-0 flex items-center hover:opacity-80 transition-opacity">
+                  <Link href="./" className="flex-shrink-0 flex items-center hover:opacity-80 transition-opacity">
                     <span className="text-xl font-bold text-white">
                       Performance Dashboard
                     </span>

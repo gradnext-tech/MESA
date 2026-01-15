@@ -17,9 +17,9 @@ export default function LoginPage() {
   useEffect(() => {
     if (isAuthenticated) {
       if (accessLevel === 'mesa') {
-        router.push('/mentee-dashboard');
+        router.push('mentee-dashboard');
       } else {
-        router.push('/');
+        router.push('./');
       }
     }
   }, [isAuthenticated, accessLevel, router]);

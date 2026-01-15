@@ -54,7 +54,7 @@ export default function Home() {
 
     const autoConnect = async () => {
       try {
-        const response = await fetch('/api/sheets', {
+        const response = await fetch('api/sheets', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -133,7 +133,7 @@ export default function Home() {
             </p>
             <div className="flex gap-4">
               <Link
-                href="/mentor-dashboard"
+                href="mentor-dashboard"
                 className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
                 style={{ backgroundColor: '#22C55E' }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#16A34A'}
@@ -143,7 +143,7 @@ export default function Home() {
                 View Mentor Dashboard
               </Link>
               <Link
-                href="/mentee-dashboard"
+                href="mentee-dashboard"
                 className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
                 style={{ backgroundColor: '#CAE8A0', color: '#1A3636' }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#B8D88A'}

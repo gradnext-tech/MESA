@@ -28,7 +28,7 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
     setSuccess(false);
 
     try {
-      const response = await fetch('/api/sheets', {
+      const response = await fetch('api/sheets', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

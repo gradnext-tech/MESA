@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // If not authenticated and not on login page, redirect to login
     if (!auth && pathname !== '/login') {
-      router.push('/login');
+      router.push('login');
       return;
     }
 
@@ -59,12 +59,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // MESA users can only access student dashboard
       if (userAccessLevel === 'mesa') {
         if (pathname !== '/mentee-dashboard' && pathname !== '/login') {
-          router.push('/mentee-dashboard');
+          router.push('mentee-dashboard');
         }
       }
       // Admin users can access everything except login (redirect to home)
       else if (userAccessLevel === 'admin' && pathname === '/login') {
-        router.push('/');
+        router.push('./');
       }
     }
   }, [isLoading, pathname, router]);
@@ -98,9 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Redirect based on access level
     if (userAccessLevel === 'mesa') {
-      router.push('/mentee-dashboard');
+      router.push('mentee-dashboard');
     } else {
-      router.push('/');
+      router.push('./');
     }
 
     return true;
@@ -111,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false);
     setAccessLevel(null);
     setEmail(null);
-    router.push('/login');
+    router.push('login');
   };
 
   return (
