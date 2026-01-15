@@ -97,6 +97,7 @@ export interface CandidateSessionStats {
   feedbackCount: number;
   sessionsCancelled: number;
   sessionsNoShow: number;
+  sessionsRescheduled: number;
   completedSessions: number;
   firstSessionDate: string;
   lastSessionDate: string;

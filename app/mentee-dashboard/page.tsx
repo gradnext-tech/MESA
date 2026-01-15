@@ -1369,7 +1369,7 @@ export default function MenteeDashboard() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col">
+                    <div className="flex flex-col gap-1">
                       {candidate.sessionsCancelled > 0 && (
                         <span className="text-xs text-red-400">
                           {candidate.sessionsCancelled} cancelled
@@ -1380,7 +1380,12 @@ export default function MenteeDashboard() {
                           {candidate.sessionsNoShow} no-show
                         </span>
                       )}
-                      {candidate.sessionsCancelled === 0 && candidate.sessionsNoShow === 0 && (
+                      {candidate.sessionsRescheduled > 0 && (
+                        <span className="text-xs text-yellow-400">
+                          {candidate.sessionsRescheduled} rescheduled
+                        </span>
+                      )}
+                      {candidate.sessionsCancelled === 0 && candidate.sessionsNoShow === 0 && candidate.sessionsRescheduled === 0 && (
                         <span className="text-xs flex items-center" style={{ color: '#86EFAC' }}>
                           <CheckCircle className="w-3 h-3 mr-1" />
                           None

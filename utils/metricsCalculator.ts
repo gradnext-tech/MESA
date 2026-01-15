@@ -764,6 +764,7 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
           feedbackCount: data.count,
           sessionsCancelled: matchingStats?.sessionsCancelled || 0,
           sessionsNoShow: matchingStats?.sessionsNoShow || 0,
+          sessionsRescheduled: matchingStats?.sessionsRescheduled || 0,
           completedSessions: matchingStats?.completedSessions || 0,
           firstSessionDate: matchingStats?.firstSessionDate || '',
           lastSessionDate: matchingStats?.lastSessionDate || '',
@@ -815,9 +816,10 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
   });
 
   const rescheduledSessions = filteredSessions.filter((s) => {
-    const rawStatus = (s.sessionStatus || '').toLowerCase().trim();
+    // Use normalized status for consistent matching
+    const status = normalizeSessionStatus(s.sessionStatus);
     // Only count mentee rescheduled (not mentor or admin)
-    return rawStatus.includes('mentee') && rawStatus.includes('reschedule');
+    return status === 'mentee_rescheduled';
   });
 
   const totalSessionsCancelled = cancelledSessions.length;
@@ -872,6 +874,7 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
         feedbackCount: 0,
         sessionsCancelled: 0,
         sessionsNoShow: 0,
+        sessionsRescheduled: 0,
         completedSessions: 0,
         firstSessionDate: session.date,
         lastSessionDate: session.date,
@@ -911,6 +914,9 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
     } else if (status === 'mentee_no_show') {
       // Only count mentee/candidate no-shows for candidate stats
       stats.sessionsNoShow++;
+    } else if (status === 'mentee_rescheduled') {
+      // Count mentee rescheduled sessions
+      stats.sessionsRescheduled++;
     }
 
     // Calculate feedback from mentorFeedback (feedback from mentors about mentees)
@@ -1057,6 +1063,7 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
           feedbackCount: candidateData.count,
           sessionsCancelled: 0,
           sessionsNoShow: 0,
+          sessionsRescheduled: 0,
           completedSessions: 0,
           firstSessionDate: candidateSession?.date || '',
           lastSessionDate: candidateSession?.date || '',
