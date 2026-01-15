@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { FileSpreadsheet, Loader2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { getApiUrl } from '@/utils/api';
 
 interface GoogleSheetsAutoConnectProps {
   onDataLoaded: (data: { 
@@ -28,13 +29,24 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
     setSuccess(false);
 
     try {
-      const response = await fetch('api/sheets', {
+      const apiUrl = getApiUrl('api/sheets');
+      console.log('Fetching API from:', apiUrl, 'Current pathname:', typeof window !== 'undefined' ? window.location.pathname : 'N/A');
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({}), // No spreadsheet ID needed - comes from env
       });
+
+      // Check if response is actually JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response received:', text.substring(0, 200));
+        throw new Error(`Expected JSON but got ${contentType}. The API endpoint may not be accessible.`);
+      }
 
       const result = await response.json();
 

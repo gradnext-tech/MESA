@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
 import { calculateMentorMetrics, calculateMentorSessionStats, normalizeSessionStatus, parseSessionDate } from '@/utils/metricsCalculator';
+import { getApiUrl } from '@/utils/api';
 import { MetricCard } from '@/components/MetricCard';
 import { DetailModal } from '@/components/DetailModal';
 import { MentorMetrics } from '@/types';
@@ -223,7 +224,7 @@ export default function MentorDashboard() {
     if (!hasData) {
       const autoConnect = async () => {
         try {
-          const response = await fetch('api/sheets', {
+          const response = await fetch(getApiUrl('api/sheets'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -595,7 +596,7 @@ export default function MentorDashboard() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const response = await fetch('api/sheets', {
+      const response = await fetch(getApiUrl('api/sheets'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -771,7 +772,7 @@ export default function MentorDashboard() {
         <h2 className="text-2xl font-bold text-white mb-2">No Data Available</h2>
         <p className="text-gray-300 mb-6">Please upload your session data first</p>
         <Link
-          href="./"
+          href="/"
           className="px-6 py-3 text-white rounded-lg transition-colors"
           style={{ backgroundColor: '#22C55E' }}
           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#16A34A'}

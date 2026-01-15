@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { GoogleSheetsAutoConnect } from '@/components/GoogleSheetsAutoConnect';
 import { useData } from '@/context/DataContext';
 import { parseSpreadsheetData, parseMenteeData } from '@/utils/metricsCalculator';
+import { getApiUrl } from '@/utils/api';
 import { CheckCircle, TrendingUp, Users, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
@@ -54,13 +55,22 @@ export default function Home() {
 
     const autoConnect = async () => {
       try {
-        const response = await fetch('api/sheets', {
+        const apiUrl = getApiUrl('api/sheets');
+        console.log('Fetching API from:', apiUrl, 'Current pathname:', typeof window !== 'undefined' ? window.location.pathname : 'N/A');
+        
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({}),
         });
+
+        if (!response.ok) {
+          const text = await response.text();
+          console.error('API Error Response:', text);
+          throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+        }
 
         const result = await response.json();
 
@@ -75,6 +85,7 @@ export default function Home() {
           setAutoConnecting(false);
         }
       } catch (error) {
+        console.error('Error in autoConnect:', error);
         setAutoConnecting(false);
       }
     };
@@ -133,7 +144,7 @@ export default function Home() {
             </p>
             <div className="flex gap-4">
               <Link
-                href="mentor-dashboard"
+                href="/mentor-dashboard"
                 className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
                 style={{ backgroundColor: '#22C55E' }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#16A34A'}
@@ -143,7 +154,7 @@ export default function Home() {
                 View Mentor Dashboard
               </Link>
               <Link
-                href="mentee-dashboard"
+                href="/mentee-dashboard"
                 className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
                 style={{ backgroundColor: '#CAE8A0', color: '#1A3636' }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#B8D88A'}
