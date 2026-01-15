@@ -193,7 +193,7 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
                   </div>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-300 mb-1">2. <strong>"Candidate Feedback"</strong> sheet:</p>
+                  <p className="text-sm text-gray-300 mb-1">2. <strong>"Candidate feedback form filled by mentors"</strong> sheet:</p>
                   <div className="rounded-lg p-3 mt-2" style={{ backgroundColor: '#1A3636' }}>
                     <code className="text-xs text-gray-300">
                       Date, Mentor Email (or Mentor Email ID), Mentee Email (or Candidate Email), 

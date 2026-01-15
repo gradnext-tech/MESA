@@ -4,7 +4,7 @@ import React from 'react';
 import { X, Calendar, Clock, Star, CheckCircle, XCircle, AlertCircle, Mail, Phone } from 'lucide-react';
 import { Session } from '@/types';
 import { parseISO, format } from 'date-fns';
-import { normalizeSessionStatus } from '@/utils/metricsCalculator';
+import { normalizeSessionStatus, parseSessionDate } from '@/utils/metricsCalculator';
 
 interface DetailModalProps {
   isOpen: boolean;
@@ -27,6 +27,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   sessions,
   candidateFeedbacks = [],
 }) => {
+  const [selectedSessionIndex, setSelectedSessionIndex] = React.useState<number | null>(null);
+  
   if (!isOpen) return null;
 
   // Filter out mentor-side disruptions for mentee dashboard
@@ -62,87 +64,109 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   const lastSession = sortedSessions[0];
   const completedSessions = sortedSessions.filter(s => s.sessionStatus?.toLowerCase() === 'completed');
   
-  // Helper function to match session with candidate feedback from candidateFeedbacks sheet
-  const getSessionFeedbackFromSheet = React.useCallback((session: Session): number | null => {
-    // Try to match with candidateFeedbacks directly
+  // Helper function to get full feedback object for a session (for mentees)
+  const getFullSessionFeedback = React.useCallback((session: Session): any | null => {
     if (type === 'mentee' && candidateFeedbacks && candidateFeedbacks.length > 0) {
-      // Try to match by date, mentor name, and candidate name/email
       const sessionDate = session.date;
-      const mentorName = session.mentorName || '';
-      const candidateName = session.menteeName || name;
-      const candidateEmail = session.menteeEmail || email;
+      const mentorName = (session.mentorName || '').trim();
+      const candidateName = (session.menteeName || name || '').trim();
+      const candidateEmail = (session.menteeEmail || email || '').trim();
 
-      // Parse session date to match with feedback date
-      let sessionDateParsed: Date | null = null;
-      try {
-        sessionDateParsed = parseISO(sessionDate);
-      } catch {
-        try {
-          sessionDateParsed = new Date(sessionDate);
-        } catch {
-          // Date parsing failed
-        }
-      }
+      // Use parseSessionDate which handles MM/DD/YYYY format
+      const sessionDateParsed = parseSessionDate(sessionDate);
 
       const matchedFeedback = candidateFeedbacks.find(feedback => {
-        const feedbackDate = feedback['Session Date'] || '';
-        const feedbackMentorName = (feedback['Mentor Name'] || '').toLowerCase().trim();
-        const feedbackCandidateName = (feedback['Candidate Name'] || '').toLowerCase().trim();
-        const feedbackCandidateEmail = (feedback['Candidate Email'] || '').toLowerCase().trim();
+        // Try multiple column name variations
+        const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+        const feedbackMentorName = (feedback['Mentor Name'] || feedback['mentorName'] || feedback['Mentor'] || feedback['mentor'] || '').trim();
+        const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim();
+        const feedbackCandidateEmail = (feedback['Candidate Email'] || feedback['candidateEmail'] || feedback['Candidate Email ID'] || feedback['Mentee Email'] || feedback['menteeEmail'] || '').trim();
 
-        // Match by candidate name or email
-        const candidateMatch = (
-          (candidateName && feedbackCandidateName === candidateName.toLowerCase().trim()) ||
-          (candidateEmail && feedbackCandidateEmail === candidateEmail.toLowerCase().trim())
-        );
+        // Normalize for comparison
+        const normalizedCandidateName = candidateName.toLowerCase().trim();
+        const normalizedCandidateEmail = candidateEmail.toLowerCase().trim();
+        const normalizedMentorName = mentorName.toLowerCase().trim();
+        const normalizedFeedbackCandidateName = feedbackCandidateName.toLowerCase().trim();
+        const normalizedFeedbackCandidateEmail = feedbackCandidateEmail.toLowerCase().trim();
+        const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
 
-        // Match by mentor name
-        const mentorMatch = mentorName && feedbackMentorName === mentorName.toLowerCase().trim();
+        // Match by candidate name or email (flexible matching)
+        const candidateMatch = 
+          (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
+          (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail) ||
+          // Partial name matching (first name + last name)
+          (normalizedCandidateName && normalizedFeedbackCandidateName && 
+           normalizedCandidateName.split(/\s+/)[0] === normalizedFeedbackCandidateName.split(/\s+/)[0] &&
+           normalizedCandidateName.split(/\s+/).pop() === normalizedFeedbackCandidateName.split(/\s+/).pop());
 
-        // Match by date (try multiple date formats)
+        // Match by mentor name (flexible - partial match allowed)
+        const mentorMatch = 
+          normalizedMentorName && normalizedFeedbackMentorName && (
+            normalizedFeedbackMentorName === normalizedMentorName ||
+            normalizedFeedbackMentorName.includes(normalizedMentorName) ||
+            normalizedMentorName.includes(normalizedFeedbackMentorName) ||
+            // First name match
+            normalizedMentorName.split(/\s+/)[0] === normalizedFeedbackMentorName.split(/\s+/)[0]
+          );
+
+        // Match by date (use parseSessionDate for both)
         let dateMatch = false;
         if (sessionDateParsed && feedbackDate) {
-          try {
-            const feedbackDateParsed = parseISO(feedbackDate);
-            if (!isNaN(feedbackDateParsed.getTime())) {
-              // Compare dates (ignore time)
-              dateMatch = 
-                sessionDateParsed.getFullYear() === feedbackDateParsed.getFullYear() &&
-                sessionDateParsed.getMonth() === feedbackDateParsed.getMonth() &&
-                sessionDateParsed.getDate() === feedbackDateParsed.getDate();
-            }
-          } catch {
-            // Try other date formats
-            try {
-              const feedbackDateParsed = new Date(feedbackDate);
-              if (!isNaN(feedbackDateParsed.getTime())) {
-                dateMatch = 
-                  sessionDateParsed.getFullYear() === feedbackDateParsed.getFullYear() &&
-                  sessionDateParsed.getMonth() === feedbackDateParsed.getMonth() &&
-                  sessionDateParsed.getDate() === feedbackDateParsed.getDate();
-              }
-            } catch {
-              // Date matching failed
-            }
+          const feedbackDateParsed = parseSessionDate(feedbackDate);
+          if (feedbackDateParsed && sessionDateParsed) {
+            // Compare dates (same day)
+            dateMatch = 
+              sessionDateParsed.getFullYear() === feedbackDateParsed.getFullYear() &&
+              sessionDateParsed.getMonth() === feedbackDateParsed.getMonth() &&
+              sessionDateParsed.getDate() === feedbackDateParsed.getDate();
           }
         }
 
-        return candidateMatch && mentorMatch && (dateMatch || !sessionDateParsed);
+        // Match if: candidate matches AND (date matches OR mentor matches OR both dates are missing)
+        // This is more flexible - if candidate and date match, mentor match is optional
+        // If candidate and mentor match, date match is optional
+        // Also allow match if candidate matches and we can't parse dates (fallback)
+        const hasCandidateMatch = candidateMatch;
+        const hasDateOrMentorMatch = dateMatch || mentorMatch || (!sessionDateParsed && !feedbackDate);
+        
+        // If candidate matches but no date/mentor match, still try if dates can't be parsed
+        if (hasCandidateMatch && !hasDateOrMentorMatch && !sessionDateParsed && !feedbackDate) {
+          return true; // Fallback: match by candidate only if dates can't be parsed
+        }
+        
+        return hasCandidateMatch && hasDateOrMentorMatch;
       });
 
-      if (matchedFeedback) {
-        const averageValue = matchedFeedback['Average'] || matchedFeedback['average'];
-        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
-          const avgRating = parseFloat(String(averageValue));
-          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
-            return avgRating;
-          }
+      return matchedFeedback || null;
+    }
+    return null;
+  }, [type, name, email, candidateFeedbacks]);
+
+  // Helper function to match session with candidate feedback from candidateFeedbacks sheet (returns just average)
+  const getSessionFeedbackFromSheet = React.useCallback((session: Session): number | null => {
+    // Use the full feedback function and extract average
+    const fullFeedback = getFullSessionFeedback(session);
+    if (fullFeedback) {
+      // Try multiple column name variations
+      let averageValue = fullFeedback['Average'] || fullFeedback['average'] || fullFeedback['Avg'] || fullFeedback['avg'];
+      
+      // If not found by name, try to find by column position (Column M = index 12)
+      if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
+        const allKeys = Object.keys(fullFeedback);
+        if (allKeys.length > 12) {
+          averageValue = fullFeedback[allKeys[12]]; // Column M (0-indexed: 12)
+        }
+      }
+      
+      if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+        const avgRating = parseFloat(String(averageValue));
+        if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+          return avgRating;
         }
       }
     }
-
     return null;
-  }, [type, name, email, candidateFeedbacks]);
+  }, [getFullSessionFeedback]);
 
   // Get recent feedbacks - for mentees, also check candidateFeedbacks
   const recentFeedbacks = React.useMemo(() => {
@@ -493,13 +517,38 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 </thead>
                 <tbody>
                   {sortedSessions.map((session, index) => {
-                    // Get feedback - for mentees, use helper function to match with candidateFeedbacks
+                    // For mentees, get full feedback object first (this has all the data)
+                    const fullFeedback = type === 'mentee' ? getFullSessionFeedback(session) : null;
+                    
+                    // Get feedback value for display - prioritize fullFeedback average
                     let feedbackValue: number | null = null;
                     let isValidRating = false;
 
                     if (type === 'mentee') {
-                      // Try to get feedback from session first, then from candidateFeedbacks
-                      if (session.mentorFeedback) {
+                      // First, try to get average from fullFeedback (Candidate Feedback sheet)
+                      if (fullFeedback) {
+                        // Try multiple column name variations
+                        let averageValue = fullFeedback['Average'] || fullFeedback['average'] || fullFeedback['Avg'] || fullFeedback['avg'];
+                        
+                        // If not found by name, try to find by column position (Column M = index 12)
+                        if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
+                          const allKeys = Object.keys(fullFeedback);
+                          if (allKeys.length > 12) {
+                            averageValue = fullFeedback[allKeys[12]]; // Column M (0-indexed: 12)
+                          }
+                        }
+                        
+                        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+                          const avgRating = parseFloat(String(averageValue));
+                          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+                            feedbackValue = avgRating;
+                            isValidRating = true;
+                          }
+                        }
+                      }
+                      
+                      // If not found in fullFeedback, try session.mentorFeedback
+                      if (!isValidRating && session.mentorFeedback) {
                         const value = typeof session.mentorFeedback === 'number' 
                           ? session.mentorFeedback 
                           : parseFloat(String(session.mentorFeedback));
@@ -509,7 +558,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         }
                       }
                       
-                      // If not found in session, try matching with candidateFeedbacks directly
+                      // Last resort: try getSessionFeedbackFromSheet
                       if (!isValidRating) {
                         const matchedFeedback = getSessionFeedbackFromSheet(session);
                         if (matchedFeedback !== null) {
@@ -532,46 +581,211 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       ? feedbackValue.toFixed(1) 
                       : null;
 
+                    const hasDetailedFeedback = fullFeedback !== null;
+                    const showDetails = selectedSessionIndex === index && type === 'mentee';
+
                     return (
-                      <tr
-                        key={index}
-                        className="border-b transition-colors"
-                        style={{ borderColor: '#3A5A5A' }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        <td className="px-4 py-2 text-sm text-white">
-                          {(() => {
-                            try {
-                              return format(parseISO(session.date), 'MMM dd, yyyy');
-                            } catch {
-                              return session.date;
-                            }
-                          })()}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-300">{session.time}</td>
-                        <td className="px-4 py-2 text-sm text-white">
-                          {type === 'mentor' ? session.menteeName : session.mentorName}
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center space-x-2">
-                            {getStatusIcon(session.sessionStatus)}
-                            <span className={`text-sm ${getStatusColor(session.sessionStatus)}`}>
-                              {session.sessionStatus}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-2">
-                          {feedbackDisplay !== null ? (
-                            <div className="flex items-center space-x-1">
-                              <Star className="w-4 h-4 text-[#86EFAC]" />
-                              <span className="text-sm text-white">{feedbackDisplay}</span>
+                      <React.Fragment key={index}>
+                        <tr
+                          className={`border-b transition-colors cursor-pointer`}
+                          style={{ borderColor: '#3A5A5A' }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#2A4A4A';
+                            e.currentTarget.style.cursor = 'pointer';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                          onClick={() => {
+                            setSelectedSessionIndex(selectedSessionIndex === index ? null : index);
+                          }}
+                        >
+                          <td className="px-4 py-2 text-sm text-white">
+                            {(() => {
+                              try {
+                                return format(parseISO(session.date), 'MMM dd, yyyy');
+                              } catch {
+                                return session.date;
+                              }
+                            })()}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-300">{session.time}</td>
+                          <td className="px-4 py-2 text-sm text-white">
+                            {type === 'mentor' ? session.menteeName : session.mentorName}
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center space-x-2">
+                              {getStatusIcon(session.sessionStatus)}
+                              <span className={`text-sm ${getStatusColor(session.sessionStatus)}`}>
+                                {session.sessionStatus}
+                              </span>
                             </div>
-                          ) : (
-                            <span className="text-sm text-gray-400">N/A</span>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-4 py-2">
+                            {feedbackDisplay !== null ? (
+                              <div className="flex items-center space-x-1">
+                                <Star className="w-4 h-4 text-[#86EFAC]" />
+                                <span className="text-sm text-white">{feedbackDisplay}</span>
+                                <span className="text-xs text-gray-500 ml-2">(Click for details)</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1">
+                                <span className="text-sm text-gray-400">N/A</span>
+                                <span className="text-xs text-gray-500 ml-2">(Click for details)</span>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                        {showDetails && (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-4" style={{ backgroundColor: '#1A3636' }}>
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-md font-semibold text-white">Session Details</h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedSessionIndex(null);
+                                    }}
+                                    className="text-gray-400 hover:text-white"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                                
+                                {/* Session Information */}
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Date</p>
+                                    <p className="text-sm text-white">
+                                      {(() => {
+                                        try {
+                                          return format(parseISO(session.date), 'MMM dd, yyyy');
+                                        } catch {
+                                          return session.date;
+                                        }
+                                      })()}
+                                    </p>
+                                  </div>
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Time</p>
+                                    <p className="text-sm text-white">{session.time}</p>
+                                  </div>
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Mentor</p>
+                                    <p className="text-sm text-white">{session.mentorName}</p>
+                                  </div>
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Status</p>
+                                    <div className="flex items-center space-x-2">
+                                      {getStatusIcon(session.sessionStatus)}
+                                      <span className={`text-sm ${getStatusColor(session.sessionStatus)}`}>
+                                        {session.sessionStatus}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {session.inviteTitle && (
+                                    <div className="p-3 rounded-lg md:col-span-2" style={{ backgroundColor: '#2A4A4A' }}>
+                                      <p className="text-xs text-gray-400 mb-1">Session Title</p>
+                                      <p className="text-sm text-white">{session.inviteTitle}</p>
+                                    </div>
+                                  )}
+                                  {session.comments && (
+                                    <div className="p-3 rounded-lg md:col-span-2" style={{ backgroundColor: '#2A4A4A' }}>
+                                      <p className="text-xs text-gray-400 mb-1">Comments</p>
+                                      <p className="text-sm text-white">{session.comments}</p>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Feedback Section (only if feedback exists) */}
+                                {fullFeedback && (
+                                  <>
+                                    <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
+                                      <h5 className="text-sm font-semibold text-white mb-3">Feedback Details</h5>
+                                      
+                                      {/* Overall Rating */}
+                                      {(fullFeedback['Average'] || fullFeedback['average']) && (
+                                        <div className="flex items-center space-x-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                          <Star className="w-5 h-5 text-[#22C55E]" />
+                                          <span className="text-lg font-bold text-white">
+                                            Overall Rating: {parseFloat(String(fullFeedback['Average'] || fullFeedback['average'])).toFixed(2)}
+                                          </span>
+                                        </div>
+                                      )}
+
+                                      {/* Case and Difficulty */}
+                                      {((fullFeedback['Case'] || fullFeedback['case']) || (fullFeedback['Difficulty'] || fullFeedback['difficulty'])) && (
+                                        <div className="grid grid-cols-2 gap-3 mb-3">
+                                          {(fullFeedback['Case'] || fullFeedback['case']) && (
+                                            <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                              <p className="text-xs text-gray-400 mb-1">Case</p>
+                                              <p className="text-sm text-white">{fullFeedback['Case'] || fullFeedback['case']}</p>
+                                            </div>
+                                          )}
+                                          {(fullFeedback['Difficulty'] || fullFeedback['difficulty']) && (
+                                            <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                              <p className="text-xs text-gray-400 mb-1">Difficulty</p>
+                                              <p className="text-sm text-white">{fullFeedback['Difficulty'] || fullFeedback['difficulty']}</p>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {/* Rating Parameters */}
+                                      <div className="space-y-2 mb-3">
+                                        <p className="text-sm font-semibold text-white mb-2">Rating Parameters:</p>
+                                        {[
+                                          { key: 'Rating on scoping questions', label: 'Scoping Questions' },
+                                          { key: 'Rating on case setup and structure', label: 'Case Setup & Structure' },
+                                          { key: 'Rating on quantitative ability (if not tested, rate 1)', label: 'Quantitative Ability' },
+                                          { key: 'Rating on communication and confidence', label: 'Communication & Confidence' },
+                                          { key: 'Rating on business acumen and creativity', label: 'Business Acumen & Creativity' },
+                                        ].map(({ key, label }) => {
+                                          const ratingValue = fullFeedback[key];
+                                          if (!ratingValue && ratingValue !== 0) return null;
+                                          const rating = parseFloat(String(ratingValue));
+                                          if (isNaN(rating)) return null;
+                                          
+                                          return (
+                                            <div key={key} className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                              <span className="text-sm text-gray-300">{label}</span>
+                                              <div className="flex items-center space-x-2">
+                                                <Star className="w-4 h-4 text-[#86EFAC]" />
+                                                <span className="text-sm font-medium text-white">{rating.toFixed(1)}</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Comments */}
+                                      {(fullFeedback['Overall strength and areas of improvement'] || 
+                                        fullFeedback['Comments'] || 
+                                        fullFeedback['comments']) && (
+                                        <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                          <p className="text-sm font-semibold text-white mb-2">Overall Strength and Areas of Improvement:</p>
+                                          <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                                            {fullFeedback['Overall strength and areas of improvement'] || 
+                                             fullFeedback['Comments'] || 
+                                             fullFeedback['comments']}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                                
+                                {!fullFeedback && type === 'mentee' && (
+                                  <div className="p-3 rounded-lg text-center" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-sm text-gray-400">No feedback available for this session</p>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

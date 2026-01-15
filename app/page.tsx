@@ -8,7 +8,7 @@ import { CheckCircle, TrendingUp, Users, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
-  const { sessions, setSessions, hasData, mentees, setMentees, setCandidateFeedbacks } = useData();
+  const { sessions, setSessions, hasData, mentees, setMentees, setCandidateFeedbacks, setMentorFeedbacks } = useData();
   const [autoConnecting, setAutoConnecting] = useState(true);
   const hasLoadedRef = React.useRef(false);
 
@@ -27,6 +27,7 @@ export default function Home() {
     setSessions(parsedSessions);
     setMentees(parsedMentees);
     setCandidateFeedbacks(data.candidateFeedbacks || []);
+    setMentorFeedbacks(data.mentorFeedbacks || []);
     setAutoConnecting(false);
   };
 

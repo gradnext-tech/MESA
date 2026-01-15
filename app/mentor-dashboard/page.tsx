@@ -209,7 +209,7 @@ function getDateFromWeek(year: number, week: number): Date {
 }
 
 export default function MentorDashboard() {
-  const { sessions, hasData, setSessions, setMentees, mentorFeedbacks, setMentorFeedbacks } = useData();
+  const { sessions, hasData, setSessions, setMentees, mentorFeedbacks, setMentorFeedbacks, setCandidateFeedbacks } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedMentor, setSelectedMentor] = useState<MentorMetrics | null>(null);
@@ -241,7 +241,8 @@ export default function MentorDashboard() {
               result.data.candidateFeedbacks || []
             );
             setSessions(parsedSessions);
-            setMentorFeedbacks(result.data.mentorFeedbacks || []);
+            // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
+            setMentorFeedbacks(Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : []);
           }
         } catch (error) {
         }
@@ -542,17 +543,22 @@ export default function MentorDashboard() {
       return [];
     }
     
-    // For rating calculation, use filteredMentorFeedbacks when filters are applied
-    // Otherwise use all mentorFeedbacks
-    // Ensure we always pass an array (never undefined) - empty array is fine
-    let feedbacksForRating: any[] | undefined;
-    if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
-      // Filters are applied - use filtered feedbacks
-      feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : [];
-    } else {
-      // No filters - use all mentorFeedbacks
-      feedbacksForRating = Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined;
+    // For rating calculation, always try to use mentorFeedbacks if available
+    // Priority: filteredMentorFeedbacks (when filters applied) > mentorFeedbacks > undefined
+    let feedbacksForRating: any[] | undefined = undefined;
+    
+    // First, check if we have any mentorFeedbacks at all
+    if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
+      // We have mentorFeedbacks - use filtered version if filters are applied, otherwise use all
+      if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+        // Filters are applied - use filtered feedbacks (even if empty, it means no matches)
+        feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : mentorFeedbacks;
+      } else {
+        // No filters - use all mentorFeedbacks
+        feedbacksForRating = mentorFeedbacks;
+      }
     }
+    // If no mentorFeedbacks, leave as undefined to trigger fallback to session-based ratings
     
     // For other metrics (sessions done, cancelled, etc.), use filtered sessions
     const metrics = calculateMentorMetrics(filteredSessions, sessions, feedbacksForRating);
@@ -609,7 +615,9 @@ export default function MentorDashboard() {
         const parsedMentees = parseMenteeData(result.data.mentees || []);
         setSessions(parsedSessions);
         setMentees(parsedMentees);
-        setMentorFeedbacks(result.data.mentorFeedbacks || []);
+        setCandidateFeedbacks(result.data.candidateFeedbacks || []);
+        // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
+        setMentorFeedbacks(Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : []);
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -736,15 +744,22 @@ export default function MentorDashboard() {
     // Pass array directly - function now handles both array and string
     const mentorFilter = selectedMentorFilter.length > 0 ? selectedMentorFilter : undefined;
     // Sessions are already filtered by date, so just pass them directly
-    // Use filteredMentorFeedbacks when filters are applied, otherwise use all mentorFeedbacks
-    let feedbacksForRating: any[] | undefined;
-    if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
-      // Filters are applied - use filtered feedbacks
-      feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : [];
-    } else {
-      // No filters - use all mentorFeedbacks
-      feedbacksForRating = Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0 ? mentorFeedbacks : undefined;
+    // Always try to use mentorFeedbacks if available
+    let feedbacksForRating: any[] | undefined = undefined;
+    
+    // First, check if we have any mentorFeedbacks at all
+    if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
+      // We have mentorFeedbacks - use filtered version if filters are applied, otherwise use all
+      if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+        // Filters are applied - use filtered feedbacks (even if empty, it means no matches)
+        feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : mentorFeedbacks;
+      } else {
+        // No filters - use all mentorFeedbacks
+        feedbacksForRating = mentorFeedbacks;
+      }
     }
+    // If no mentorFeedbacks, leave as undefined to trigger fallback to session-based ratings
+    
     const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, feedbacksForRating);
     return stats;
   }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks, mentorFeedbacks]);

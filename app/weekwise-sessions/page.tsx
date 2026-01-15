@@ -19,8 +19,19 @@ interface WeekwiseStats {
   weekLabel: string;
   totalScheduled: number;
   totalDone: number;
+  // High-level aggregates
   rescheduled: number;
   cancelled: number;
+  // Detailed breakdown by actor / outcome
+  pending: number;
+  menteeNoShow: number;
+  menteeCancelled: number;
+  menteeRescheduled: number;
+  mentorNoShow: number;
+  mentorCancelled: number;
+  mentorRescheduled: number;
+  adminCancelled: number;
+  adminRescheduled: number;
 }
 
 export default function WeekwiseSessions() {
@@ -28,6 +39,8 @@ export default function WeekwiseSessions() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
   const [isWeekwiseExpanded, setIsWeekwiseExpanded] = useState(false);
+  const [isSessionDetailsExpanded, setIsSessionDetailsExpanded] = useState(true);
+  const [isPendingFeedbackExpanded, setIsPendingFeedbackExpanded] = useState(true);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -109,25 +122,84 @@ export default function WeekwiseSessions() {
       });
 
       // Calculate statistics
-      let totalScheduled = weekSessions.length;
+      const totalScheduled = weekSessions.length;
+
       let totalDone = 0;
       let rescheduled = 0;
       let cancelled = 0;
 
+      let pending = 0;
+      let menteeNoShow = 0;
+      let menteeCancelled = 0;
+      let menteeRescheduled = 0;
+      let mentorNoShow = 0;
+      let mentorCancelled = 0;
+      let mentorRescheduled = 0;
+      let adminCancelled = 0;
+      let adminRescheduled = 0;
+
       weekSessions.forEach(s => {
         const status = normalizeSessionStatus(s.sessionStatus);
+
         if (status === 'completed') {
           totalDone++;
+          return;
         }
-        // Count all types of rescheduled (mentee, mentor, admin, and legacy)
-        if (status === 'mentee_rescheduled' || status === 'mentor_rescheduled' || 
-            status === 'admin_rescheduled' || status === 'unknown_rescheduled') {
-          rescheduled++;
+
+        if (status === 'pending') {
+          pending++;
+          return;
         }
-        // Count all types of cancelled (mentee, mentor, admin, and legacy)
-        if (status === 'mentee_cancelled' || status === 'mentor_cancelled' || 
-            status === 'admin_cancelled' || status === 'unknown_cancelled') {
+
+        // Detailed mentee-side disruptions
+        if (status === 'mentee_no_show') {
+          menteeNoShow++;
+          return;
+        }
+        if (status === 'mentee_cancelled') {
+          menteeCancelled++;
           cancelled++;
+          return;
+        }
+        if (status === 'mentee_rescheduled') {
+          menteeRescheduled++;
+          rescheduled++;
+          return;
+        }
+
+        // Detailed mentor-side disruptions
+        if (status === 'mentor_no_show') {
+          mentorNoShow++;
+          return;
+        }
+        if (status === 'mentor_cancelled') {
+          mentorCancelled++;
+          cancelled++;
+          return;
+        }
+        if (status === 'mentor_rescheduled') {
+          mentorRescheduled++;
+          rescheduled++;
+          return;
+        }
+
+        // Detailed admin-side disruptions
+        if (status === 'admin_cancelled') {
+          adminCancelled++;
+          cancelled++;
+          return;
+        }
+        if (status === 'admin_rescheduled') {
+          adminRescheduled++;
+          rescheduled++;
+          return;
+        }
+
+        // Legacy / unknown cancelled & rescheduled still contribute to high-level aggregates
+        if (status === 'unknown_cancelled') {
+          cancelled++;
+        } else if (status === 'unknown_rescheduled') {
+          rescheduled++;
         }
       });
 
@@ -139,6 +211,15 @@ export default function WeekwiseSessions() {
         totalDone,
         rescheduled,
         cancelled,
+        pending,
+        menteeNoShow,
+        menteeCancelled,
+        menteeRescheduled,
+        mentorNoShow,
+        mentorCancelled,
+        mentorRescheduled,
+        adminCancelled,
+        adminRescheduled,
       };
     });
 
@@ -197,6 +278,61 @@ export default function WeekwiseSessions() {
     }
     return 'Not Filled';
   };
+
+  // Calculate mentor-wise pending feedback statistics
+  const mentorPendingFeedback = useMemo(() => {
+    if (!hasData || filteredSessions.length === 0) {
+      return [];
+    }
+
+    // Group sessions by mentor
+    const mentorMap = new Map<string, {
+      mentorName: string;
+      mentorEmail: string;
+      pendingSessions: Array<{
+        date: string;
+        menteeName: string;
+        menteeEmail: string;
+        sessionStatus: string;
+      }>;
+    }>();
+
+    filteredSessions.forEach(session => {
+      const mentorEmail = (session.mentorEmail || '').trim().toLowerCase();
+      const mentorName = session.mentorName || 'Unknown';
+      
+      if (!mentorEmail) return;
+
+      // Check if feedback is pending
+      const feedbackStatus = getMentorFeedbackStatus(session);
+      if (feedbackStatus !== 'Filled') {
+        // Only count completed sessions for pending feedback
+        const status = normalizeSessionStatus(session.sessionStatus);
+        if (status === 'completed') {
+          if (!mentorMap.has(mentorEmail)) {
+            mentorMap.set(mentorEmail, {
+              mentorName,
+              mentorEmail: session.mentorEmail || '',
+              pendingSessions: [],
+            });
+          }
+
+          const mentorData = mentorMap.get(mentorEmail)!;
+          mentorData.pendingSessions.push({
+            date: session.date || '',
+            menteeName: session.menteeName || 'Unknown',
+            menteeEmail: session.menteeEmail || '',
+            sessionStatus: session.sessionStatus || '',
+          });
+        }
+      }
+    });
+
+    // Convert to array and sort by pending count (descending)
+    return Array.from(mentorMap.values())
+      .filter(mentor => mentor.pendingSessions.length > 0)
+      .sort((a, b) => b.pendingSessions.length - a.pendingSessions.length);
+  }, [filteredSessions, hasData, getMentorFeedbackStatus]);
 
   if (!hasData) {
     return (
@@ -299,20 +435,41 @@ export default function WeekwiseSessions() {
                   Total Scheduled
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Total Done
+                  Completed
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Rescheduled
+                  Pending
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Cancelled
+                  Mentee No Show
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Mentee Cancelled
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Mentee Rescheduled
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Mentor No Show
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Mentor Cancelled
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Mentor Rescheduled
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Admin Cancelled
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  Admin Rescheduled
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
               {weekwiseStats.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan={13} className="px-6 py-8 text-center text-gray-400">
                     No session data available
                   </td>
                 </tr>
@@ -374,13 +531,48 @@ export default function WeekwiseSessions() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-yellow-400">
-                        {stat.rescheduled}
+                      <span className="text-sm text-gray-300">
+                        {stat.pending}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-red-400">
-                        {stat.cancelled}
+                      <span className="text-sm text-purple-300">
+                        {stat.menteeNoShow}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-purple-300">
+                        {stat.menteeCancelled}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-purple-300">
+                        {stat.menteeRescheduled}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-red-300">
+                        {stat.mentorNoShow}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-red-300">
+                        {stat.mentorCancelled}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-red-300">
+                        {stat.mentorRescheduled}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-amber-300">
+                        {stat.adminCancelled}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-amber-300">
+                        {stat.adminRescheduled}
                       </span>
                     </td>
                   </tr>
@@ -395,7 +587,11 @@ export default function WeekwiseSessions() {
 
       {/* Session-wise Data Table */}
       <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-        <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
+        <div 
+          className="p-6 border-b cursor-pointer" 
+          style={{ borderColor: '#3A5A5A' }}
+          onClick={() => setIsSessionDetailsExpanded(!isSessionDetailsExpanded)}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)' }}>
@@ -410,18 +606,35 @@ export default function WeekwiseSessions() {
                 </p>
               </div>
             </div>
-            {selectedWeek && (
-              <button
-                onClick={() => setSelectedWeek(null)}
-                className="text-sm text-gray-400 hover:text-white px-3 py-1 rounded"
-                style={{ backgroundColor: '#1A3636' }}
-              >
-                Clear Filter
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {selectedWeek && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedWeek(null);
+                  }}
+                  className="text-sm text-gray-400 hover:text-white px-3 py-1 rounded"
+                  style={{ backgroundColor: '#1A3636' }}
+                >
+                  Clear Filter
+                </button>
+              )}
+              {isSessionDetailsExpanded ? (
+                <>
+                  <span className="text-xs text-gray-400">Click to collapse</span>
+                  <ChevronUp className="w-5 h-5 text-gray-400" />
+                </>
+              ) : (
+                <>
+                  <span className="text-xs text-gray-400">Click to expand</span>
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                </>
+              )}
+            </div>
           </div>
         </div>
 
+        {isSessionDetailsExpanded && (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
@@ -540,7 +753,120 @@ export default function WeekwiseSessions() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
+
+      {/* Pending Feedback Table - Mentor-wise */}
+      {mentorPendingFeedback.length > 0 && (
+        <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div 
+            className="p-6 border-b cursor-pointer" 
+            style={{ borderColor: '#3A5A5A' }}
+            onClick={() => setIsPendingFeedbackExpanded(!isPendingFeedbackExpanded)}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' }}>
+                  <AlertCircle className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Pending Feedback - Mentor-wise</h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Sessions where mentor feedback is yet to be filled ({mentorPendingFeedback.length} mentor{mentorPendingFeedback.length !== 1 ? 's' : ''} with pending feedback)
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {isPendingFeedbackExpanded ? (
+                  <>
+                    <span className="text-xs text-gray-400">Click to collapse</span>
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-gray-400">Click to expand</span>
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {isPendingFeedbackExpanded && (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor Email
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Pending Count
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Sessions with Pending Feedback
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                {mentorPendingFeedback.map((mentor, index) => (
+                  <tr
+                    key={`${mentor.mentorEmail}-${index}`}
+                    className="transition-colors"
+                    style={{ borderColor: '#3A5A5A' }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm font-medium text-white">
+                        {mentor.mentorName}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-300">
+                        {mentor.mentorEmail}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full text-white" style={{ backgroundColor: '#F59E0B' }}>
+                        {mentor.pendingSessions.length}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="space-y-2">
+                        {mentor.pendingSessions.map((session, sessionIndex) => {
+                          const sessionDate = parseSessionDate(session.date);
+                          return (
+                            <div
+                              key={`${session.date}-${session.menteeEmail}-${sessionIndex}`}
+                              className="flex items-center gap-3 text-sm"
+                            >
+                              <span className="text-gray-300">
+                                {sessionDate ? format(sessionDate, 'MMM d, yyyy') : session.date}
+                              </span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-white font-medium">
+                                {session.menteeName}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                ({session.menteeEmail})
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

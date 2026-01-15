@@ -1,5 +1,5 @@
 import { Session, MentorMetrics, MenteeMetrics, CandidateSessionStats, Mentee } from '@/types';
-import { parseISO, differenceInDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, parse, isWithinInterval, startOfDay } from 'date-fns';
+import { parseISO, differenceInDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subWeeks, parse, isWithinInterval, startOfDay, format } from 'date-fns';
 
 /**
  * Helper function to parse session dates consistently
@@ -467,6 +467,7 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
     : 0;
 
   // Average feedback score - read directly from column M (Average) in candidate feedbacks
+  // Apply the same filters as applied to sessions
   const feedbackScores: number[] = [];
   
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
@@ -489,20 +490,99 @@ export function calculateMenteeMetrics(sessions: Session[], weekFilter?: Date, m
       averageKey = allKeys[12]; // Column M (0-indexed: 12)
     }
     
-    if (!averageKey) {
-    }
-    
-    candidateFeedbacks.forEach((feedback) => {
-      if (averageKey) {
-        const averageValue = feedback[averageKey];
-        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
-          const avgRating = parseFloat(String(averageValue));
-          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
-            feedbackScores.push(avgRating);
+    if (averageKey) {
+      // Filter candidateFeedbacks by the same criteria as sessions
+      candidateFeedbacks.forEach((feedback) => {
+        let includeThisFeedback = true;
+        
+        // Apply week filter
+        if (weekFilter && includeThisFeedback) {
+          const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+          if (feedbackDate) {
+            const feedbackDateParsed = parseSessionDate(feedbackDate);
+            if (feedbackDateParsed) {
+              const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+              const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+              const feedbackDateNormalized = startOfDay(feedbackDateParsed);
+              includeThisFeedback = isWithinInterval(feedbackDateNormalized, {
+                start: startOfDay(weekStart),
+                end: startOfDay(weekEnd),
+              });
+            } else {
+              includeThisFeedback = false; // Can't parse date, exclude
+            }
+          } else {
+            includeThisFeedback = false; // No date, exclude
           }
         }
-      }
-    });
+        
+        // Apply month filter
+        if (monthFilter && includeThisFeedback) {
+          const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+          if (feedbackDate) {
+            const feedbackDateParsed = parseSessionDate(feedbackDate);
+            if (feedbackDateParsed) {
+              const monthDate = new Date(monthFilter + '-01');
+              const monthStart = startOfMonth(monthDate);
+              const monthEnd = endOfMonth(monthDate);
+              const feedbackDateNormalized = startOfDay(feedbackDateParsed);
+              includeThisFeedback = isWithinInterval(feedbackDateNormalized, {
+                start: startOfDay(monthStart),
+                end: startOfDay(monthEnd),
+              });
+            } else {
+              includeThisFeedback = false; // Can't parse date, exclude
+            }
+          } else {
+            includeThisFeedback = false; // No date, exclude
+          }
+        }
+        
+        // Apply mentee email filter - match by names only since Candidate Feedback sheet has no email
+        if (menteeEmailFilter && includeThisFeedback) {
+          const filterEmails = Array.isArray(menteeEmailFilter) ? menteeEmailFilter : [menteeEmailFilter];
+          if (filterEmails.length > 0) {
+            const normalizedFilterEmails = filterEmails.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+            const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim().toLowerCase();
+            
+            // Get the names from sessions that match the filter emails
+            const filterNames = filteredSessions
+              .filter(s => normalizedFilterEmails.includes((s.menteeEmail || '').trim().toLowerCase()))
+              .map(s => (s.menteeName || '').trim().toLowerCase())
+              .filter(n => n);
+            
+            // Match by name (exact match or partial match)
+            const nameMatch = feedbackCandidateName && (
+              filterNames.includes(feedbackCandidateName) ||
+              // Partial name matching (first name + last name)
+              filterNames.some(filterName => {
+                if (feedbackCandidateName.split(/\s+/).length > 0 && filterName.split(/\s+/).length > 0) {
+                  const feedbackFirstName = feedbackCandidateName.split(/\s+/)[0];
+                  const feedbackLastName = feedbackCandidateName.split(/\s+/).pop();
+                  const filterFirstName = filterName.split(/\s+/)[0];
+                  const filterLastName = filterName.split(/\s+/).pop();
+                  return feedbackFirstName === filterFirstName && feedbackLastName === filterLastName;
+                }
+                return false;
+              })
+            );
+            
+            includeThisFeedback = nameMatch;
+          }
+        }
+        
+        // If this feedback passes all filters, include its average value
+        if (includeThisFeedback) {
+          const averageValue = feedback[averageKey];
+          if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+            const avgRating = parseFloat(String(averageValue));
+            if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+              feedbackScores.push(avgRating);
+            }
+          }
+        }
+      });
+    }
   }
   
   const avgFeedbackScore = feedbackScores.length > 0
@@ -802,8 +882,18 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
     }
 
     const stats = candidateMap.get(email)!;
+
+    // Count this session in the raw session count (includes pending)
     stats.sessionCount++;
-    stats.totalSessionsBooked++;
+
+    // Normalized status for downstream calculations
+    const status = normalizeSessionStatus(session.sessionStatus);
+
+    // Only count non-pending sessions as "booked" for completion rate
+    // This ensures pending/future sessions don't reduce the completion percentage
+    if (status !== 'pending') {
+      stats.totalSessionsBooked++;
+    }
 
     // Update date range
     if (session.date < stats.firstSessionDate) {
@@ -814,7 +904,6 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
     }
 
     // Count session types using normalised status
-    const status = normalizeSessionStatus(session.sessionStatus);
     if (status === 'completed') {
       stats.completedSessions++;
     } else if (status === 'mentee_cancelled') {
@@ -1864,14 +1953,14 @@ export function parseMenteeData(menteeData: any[]): Mentee[] {
       return email && email.trim() !== '';
     })
     .map((row, index) => ({
-      srNo: parseInt(row['Sr. no.'] || row['Sr No'] || row['srNo'] || String(index + 1)) || index + 1,
+      srNo: parseInt(row['Sr. no.'] || row['Sr. no. '] || row['Sr No'] || row['srNo'] || String(index + 1)) || index + 1,
       name: row['Name'] || row['name'] || '',
       phoneNumber: row['Phone Number'] || row['phoneNumber'] || row['Phone'] || '',
       email: (row['Email'] || row['email'] || '').trim().toLowerCase(),
       linkedin: row['Linkedin'] || row['linkedin'] || row['LinkedIn'] || '',
       minor1: row['Minor 1'] || row['minor1'] || row['Minor1'] || '',
       minor2: row['Minor 2'] || row['minor2'] || row['Minor2'] || '',
-  }));
+    }));
 }
 
 /**

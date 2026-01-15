@@ -203,11 +203,209 @@ export default function MenteeDashboard() {
 
   const { candidateFeedbacks, setMentorFeedbacks } = useData();
 
+  // Auto-fetch data if not available (when navigating directly to this page)
+  React.useEffect(() => {
+    if (!hasData || mentees.length === 0) {
+      const autoConnect = async () => {
+        try {
+          const response = await fetch('/api/sheets', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({}),
+          });
+
+          const result = await response.json();
+
+          if (response.ok && result.success && result.data.sessions) {
+            const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+            const parsedSessions = parseSpreadsheetData(
+              result.data.sessions,
+              result.data.mentorFeedbacks || [],
+              result.data.candidateFeedbacks || []
+            );
+            const parsedMentees = parseMenteeData(result.data.mentees || []);
+            setSessions(parsedSessions);
+            setMentees(parsedMentees);
+            setCandidateFeedbacks(result.data.candidateFeedbacks || []);
+            setMentorFeedbacks(result.data.mentorFeedbacks || []);
+          }
+        } catch (error) {
+          // Silently fail - user can refresh manually
+        }
+      };
+
+      autoConnect();
+    }
+  }, [hasData, mentees.length, setSessions, setMentees, setCandidateFeedbacks, setMentorFeedbacks]);
+
   const menteeMetrics = useMemo(() => {
     if (!hasData) return null;
     const menteeFilter = selectedMenteeFilter.length > 0 ? selectedMenteeFilter : undefined;
     return calculateMenteeMetrics(sessions, weekFilter, mentees, candidateFeedbacks, monthFilter || undefined, menteeFilter);
   }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter, mentees, candidateFeedbacks]);
+
+  // Calculate filtered sessions for metrics (same logic as in calculateMenteeMetrics)
+  const filteredSessionsForMetrics = useMemo(() => {
+    if (!hasData || !sessions || sessions.length === 0) return [];
+
+    const isMentorDisruption = (status?: string) => {
+      const normalized = normalizeSessionStatus(status);
+      return (
+        normalized === 'mentor_cancelled' ||
+        normalized === 'mentor_no_show' ||
+        normalized === 'mentor_rescheduled' ||
+        normalized === 'admin_cancelled' ||
+        normalized === 'admin_rescheduled'
+      );
+    };
+
+    // Remove mentor-side disruptions
+    let filtered = sessions.filter(s => !isMentorDisruption(s.sessionStatus));
+
+    // Filter by week if provided
+    if (weekFilter) {
+      const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+      
+      filtered = filtered.filter(session => {
+        try {
+          const sessionDate = parseSessionDate(session.date);
+          if (!sessionDate) return false;
+          const sessionDateNormalized = startOfDay(sessionDate);
+          return isWithinInterval(sessionDateNormalized, {
+            start: startOfDay(weekStart),
+            end: startOfDay(weekEnd),
+          });
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    // Filter by month if provided
+    if (monthFilter) {
+      const monthDate = new Date(monthFilter + '-01');
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      
+      filtered = filtered.filter(session => {
+        try {
+          const sessionDate = parseSessionDate(session.date);
+          if (!sessionDate) return false;
+          const sessionDateNormalized = startOfDay(sessionDate);
+          return isWithinInterval(sessionDateNormalized, {
+            start: startOfDay(monthStart),
+            end: startOfDay(monthEnd),
+          });
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    // Filter by mentee email(s) if provided
+    if (selectedMenteeFilter.length > 0) {
+      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filtered = filtered.filter(session => {
+        const sessionEmail = (session.menteeEmail || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(sessionEmail);
+      });
+    }
+
+    return filtered;
+  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter]);
+
+  // Calculate total sessions (unfiltered) for average sessions per candidate metric
+  const totalSessionsUnfiltered = useMemo(() => {
+    if (!hasData) return 0;
+    // Count all completed sessions without any filters
+    // Filter out mentor-side disruptions (same logic as in calculateMenteeMetrics)
+    const isMentorDisruption = (status?: string) => {
+      const normalized = normalizeSessionStatus(status);
+      return (
+        normalized === 'mentor_cancelled' ||
+        normalized === 'mentor_no_show' ||
+        normalized === 'mentor_rescheduled' ||
+        normalized === 'admin_cancelled' ||
+        normalized === 'admin_rescheduled'
+      );
+    };
+    
+    const filteredSessions = sessions.filter(s => !isMentorDisruption(s.sessionStatus));
+    const completedSessions = filteredSessions.filter(
+      (s) => normalizeSessionStatus(s.sessionStatus) === 'completed'
+    );
+    return completedSessions.length;
+  }, [sessions, hasData]);
+
+  // Calculate unique candidates who have booked sessions (matching Mentee Directory with MESA sheet)
+  const uniqueCandidatesWithSessions = useMemo(() => {
+    if (!hasData || !mentees || mentees.length === 0) {
+      // If no mentees directory, fallback to unique emails from sessions
+      const uniqueEmails = new Set(sessions.map(s => (s.menteeEmail || '').trim().toLowerCase()).filter(e => e));
+      return uniqueEmails.size;
+    }
+
+    // Get unique mentee emails and names from sessions (MESA sheet)
+    const sessionMenteeEmails = new Set<string>();
+    const sessionMenteeNames = new Set<string>();
+    
+    sessions.forEach(session => {
+      const email = (session.menteeEmail || '').trim().toLowerCase();
+      const name = (session.menteeName || '').trim().toLowerCase();
+      if (email) sessionMenteeEmails.add(email);
+      if (name) sessionMenteeNames.add(name);
+    });
+
+    // Match mentees from directory with sessions
+    // Match by email (primary) or by name (fallback)
+    const matchedMentees = new Set<string>();
+    
+    mentees.forEach(mentee => {
+      const menteeEmail = (mentee.email || '').trim().toLowerCase();
+      const menteeName = (mentee.name || '').trim().toLowerCase();
+      
+      // Match by email (exact match)
+      if (menteeEmail && sessionMenteeEmails.has(menteeEmail)) {
+        matchedMentees.add(menteeEmail);
+        return;
+      }
+      
+      // Match by name (case-insensitive, handle variations)
+      if (menteeName && sessionMenteeNames.has(menteeName)) {
+        matchedMentees.add(menteeEmail || menteeName);
+        return;
+      }
+      
+      // Try partial name matching (first name + last name)
+      if (menteeName) {
+        const nameParts = menteeName.split(/\s+/).filter((p: string) => p.length > 0);
+        if (nameParts.length > 0) {
+          const firstName = nameParts[0].toLowerCase();
+          const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1].toLowerCase() : '';
+          
+          // Check if any session name matches
+          for (const sessionName of sessionMenteeNames) {
+            const sessionNameParts = sessionName.split(/\s+/).filter((p: string) => p.length > 0);
+            if (sessionNameParts.length > 0) {
+              const sessionFirstName = sessionNameParts[0].toLowerCase();
+              const sessionLastName = sessionNameParts.length > 1 ? sessionNameParts[sessionNameParts.length - 1].toLowerCase() : '';
+              
+              // Match if first and last names match
+              if (firstName === sessionFirstName && lastName && sessionLastName && lastName === sessionLastName) {
+                matchedMentees.add(menteeEmail || menteeName);
+                break;
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return matchedMentees.size;
+  }, [sessions, hasData, mentees]);
 
   // Get unique mentees for filter
   const uniqueMentees = useMemo(() => {
@@ -417,14 +615,29 @@ export default function MenteeDashboard() {
   }, [candidateAnalytics]);
 
   const filteredCandidates = useMemo(() => {
-    if (!searchTerm) return candidateAnalytics;
-    const term = searchTerm.toLowerCase();
-    return candidateAnalytics.filter(
-      (c) =>
-        c.name.toLowerCase().includes(term) ||
-        c.email.toLowerCase().includes(term)
-    );
-  }, [candidateAnalytics, searchTerm]);
+    let filtered = candidateAnalytics;
+    
+    // Apply mentee filter if selected
+    if (selectedMenteeFilter.length > 0) {
+      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filtered = filtered.filter(c => {
+        const candidateEmail = (c.email || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(candidateEmail);
+      });
+    }
+    
+    // Apply search term filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(term) ||
+          c.email.toLowerCase().includes(term)
+      );
+    }
+    
+    return filtered;
+  }, [candidateAnalytics, searchTerm, selectedMenteeFilter]);
 
   const handleMenteeClick = (candidate: CandidateSessionStats) => {
     setSelectedMentee(candidate);
@@ -752,26 +965,65 @@ export default function MenteeDashboard() {
         />
         <MetricCard
           title="# of Unique Candidates"
-          value={mentees.length}
+          value={uniqueCandidatesWithSessions}
           icon={Users}
           iconColor="text-[#22C55E]"
-          subtitle="Total candidates from Mentee Directory"
+          subtitle="Candidates from Mentee Directory who booked sessions"
         />
         <MetricCard
           title="Avg Sessions Per Candidate"
-          value={mentees.length > 0 ? (menteeMetrics.totalSessionsDone / mentees.length).toFixed(2) : '0.00'}
+          value={(() => {
+            // Formula: Total Sessions Done (filtered) / Total Candidates (from Mentee Directory)
+            if (!hasData || !mentees || mentees.length === 0 || !menteeMetrics) {
+              return 'N/A';
+            }
+            
+            // Use filtered sessions count from menteeMetrics (already filtered by week/month/mentee)
+            const totalSessionsDone = menteeMetrics.totalSessionsDone;
+            const totalCandidates = mentees.length;
+            return totalSessionsDone > 0 
+              ? (totalSessionsDone / totalCandidates).toFixed(2)
+              : '0.00';
+          })()}
           icon={TrendingUp}
           iconColor="text-[#22C55E]"
-          subtitle="Total Sessions / Total Candidates"
+          subtitle="Total Sessions Done (filtered) / Total Candidates (from Mentee Directory)"
         />
         <MetricCard
           title="Avg Sessions Per Active Candidate"
-          value={candidateAnalytics.filter(c => c.totalSessionsBooked > 0).length > 0 
-            ? (menteeMetrics.totalSessionsDone / candidateAnalytics.filter(c => c.totalSessionsBooked > 0).length).toFixed(2) 
-            : '0.00'}
+          value={(() => {
+            // Formula: Total Sessions Done (filtered) / Candidates with at least 1 session in filtered range (who are in Mentee Directory)
+            if (!hasData || !mentees || mentees.length === 0 || !menteeMetrics) {
+              return 'N/A';
+            }
+            
+            // Use filtered sessions count from menteeMetrics (already filtered by week/month/mentee)
+            const totalSessionsDone = menteeMetrics.totalSessionsDone;
+            
+            // Get unique mentee names from filtered sessions (who have booked at least 1 session in the filtered range)
+            const filteredCompletedSessions = filteredSessionsForMetrics.filter(
+              s => normalizeSessionStatus(s.sessionStatus) === 'completed'
+            );
+            
+            const sessionMenteeNames = new Set(
+              filteredCompletedSessions
+                .map(s => (s.menteeName || '').trim().toLowerCase())
+                .filter(name => name)
+            );
+            
+            // Count how many candidates from Mentee Directory have booked at least 1 session in the filtered range
+            const activeCandidatesCount = mentees.filter(mentee => {
+              const menteeName = (mentee.name || '').trim().toLowerCase();
+              return menteeName && sessionMenteeNames.has(menteeName);
+            }).length;
+            
+            return activeCandidatesCount > 0 
+              ? (totalSessionsDone / activeCandidatesCount).toFixed(2)
+              : '0.00';
+          })()}
           icon={TrendingUp}
           iconColor="text-[#22C55E]"
-          subtitle="Total Sessions / Active Candidates"
+          subtitle="Total Sessions Done (filtered) / Active Candidates (from Mentee Directory)"
         />
         <MetricCard
           title="Total Sessions Cancelled / Rescheduled / No Show"

@@ -99,10 +99,15 @@ export async function fetchSheetData(
     let headerRowIndex = 0;
     let actualHeaders = headers;
     
-    // Check if first row looks like metadata (contains "Link" or "Edit")
+    // Check if first row looks like metadata (contains "Responder Link" or "Edit Link" - specific Google Forms metadata)
     if (rows.length > 0 && headers.length > 0) {
       const firstRowKeys = headers.map(h => String(h).toLowerCase());
-      const hasMetadataKeys = firstRowKeys.some(k => k.includes('link') || k.includes('edit') || k.includes('responder'));
+      // More specific check: look for "responder link" or "edit link" (not just "link" which could be "LinkedIn")
+      const hasMetadataKeys = firstRowKeys.some(k => 
+        k.includes('responder link') || 
+        k.includes('edit link') || 
+        (k === 'responder' && firstRowKeys.some(k2 => k2.includes('link')))
+      );
       
       if (hasMetadataKeys && rows.length > 1) {
         // The actual headers are likely in the second row
@@ -192,8 +197,8 @@ export async function fetchAllSheets(
           console.error('Error fetching Mentor Feedbacks:', err.message);
           return [];
         }),
-        fetchSheetData(feedbacksSpreadsheetId, 'Candidate Feedback').catch((err) => {
-          console.error('Error fetching Candidate Feedback:', err.message);
+        fetchSheetData(feedbacksSpreadsheetId, 'Candidate feedback form filled by mentors').catch((err) => {
+          console.error('Error fetching Candidate feedback form filled by mentors:', err.message);
           return [];
         }),
         fetchSheetData(feedbacksSpreadsheetId, 'Mentor directory').catch((err) => {
