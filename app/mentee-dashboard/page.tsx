@@ -342,18 +342,22 @@ export default function MenteeDashboard() {
   }, [sessions, hasData]);
 
   // Calculate unique candidates who have booked sessions (matching Mentee Directory with MESA sheet)
+  // This now respects the week/month/mentee filters
   const uniqueCandidatesWithSessions = useMemo(() => {
+    // Use filtered sessions instead of all sessions to respect filters
+    const sessionsToUse = filteredSessionsForMetrics.length > 0 ? filteredSessionsForMetrics : sessions;
+    
     if (!hasData || !mentees || mentees.length === 0) {
-      // If no mentees directory, fallback to unique emails from sessions
-      const uniqueEmails = new Set(sessions.map(s => (s.menteeEmail || '').trim().toLowerCase()).filter(e => e));
+      // If no mentees directory, fallback to unique emails from filtered sessions
+      const uniqueEmails = new Set(sessionsToUse.map(s => (s.menteeEmail || '').trim().toLowerCase()).filter(e => e));
       return uniqueEmails.size;
     }
 
-    // Get unique mentee emails and names from sessions (MESA sheet)
+    // Get unique mentee emails and names from filtered sessions (MESA sheet)
     const sessionMenteeEmails = new Set<string>();
     const sessionMenteeNames = new Set<string>();
     
-    sessions.forEach(session => {
+    sessionsToUse.forEach(session => {
       const email = (session.menteeEmail || '').trim().toLowerCase();
       const name = (session.menteeName || '').trim().toLowerCase();
       if (email) sessionMenteeEmails.add(email);
@@ -406,7 +410,7 @@ export default function MenteeDashboard() {
     });
 
     return matchedMentees.size;
-  }, [sessions, hasData, mentees]);
+  }, [filteredSessionsForMetrics, sessions, hasData, mentees]);
 
   // Get unique mentees for filter
   const uniqueMentees = useMemo(() => {

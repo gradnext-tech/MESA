@@ -83,38 +83,63 @@ export async function fetchSheetData(
     });
 
     const rows = response.data.values;
-    if (!rows || rows.length === 0) {
-      return [];
-    }
-
-    // First row is headers
-    const headers = rows[0];
-    if (!headers || headers.length === 0) {
-      return [];
-    }
-    const data: SheetData[] = [];
-
-    // For Google Forms responses, skip metadata rows (like "Responder Link", "Edit Link")
-    // Find the actual header row - it should contain column names like "Mentor Name", "Session Date", etc.
-    let headerRowIndex = 0;
-    let actualHeaders = headers;
+    console.log(`📊 Sheet "${sheetName}":`, {
+      totalRows: rows?.length || 0,
+      firstRow: rows?.[0],
+      firstRowLength: rows?.[0]?.length,
+      secondRow: rows?.[1],
+      secondRowLength: rows?.[1]?.length,
+      firstFewRows: rows?.slice(0, 4) // Show first 4 rows for debugging
+    });
     
-    // Check if first row looks like metadata (contains "Responder Link" or "Edit Link" - specific Google Forms metadata)
-    if (rows.length > 0 && headers.length > 0) {
-      const firstRowKeys = headers.map(h => String(h).toLowerCase());
-      // More specific check: look for "responder link" or "edit link" (not just "link" which could be "LinkedIn")
-      const hasMetadataKeys = firstRowKeys.some(k => 
-        k.includes('responder link') || 
-        k.includes('edit link') || 
-        (k === 'responder' && firstRowKeys.some(k2 => k2.includes('link')))
-      );
-      
-      if (hasMetadataKeys && rows.length > 1) {
-        // The actual headers are likely in the second row
-        headerRowIndex = 1;
-        actualHeaders = rows[1].map((cell: any) => String(cell || '').trim());
+    if (!rows || rows.length === 0) {
+      console.log(`❌ No rows found in sheet "${sheetName}"`);
+      return [];
+    }
+
+    // Find the header row - it might not be the first row (could be empty or have "Form_Responses")
+    // For "Mentor Feedbacks filled by candidate", headers are in row 2 (index 1)
+    let headerRowIndex = -1;
+    let actualHeaders: string[] = [];
+    
+    // Look through the first few rows to find the header row
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      const row = rows[i];
+      if (row && row.length > 0) {
+        // Check if this row looks like headers (has multiple non-empty cells)
+        const nonEmptyCells = row.filter((cell: any) => 
+          cell !== null && cell !== undefined && String(cell).trim() !== ''
+        );
+        
+        // Skip rows that are just "Form_Responses" or similar metadata
+        const rowText = row.map((cell: any) => String(cell || '').toLowerCase()).join(' ');
+        const isMetadataRow = rowText.includes('form_responses') || 
+                             rowText.includes('responder link') || 
+                             rowText.includes('edit link');
+        
+        // If row has at least 3 non-empty cells and is not a metadata row, it's likely a header row
+        if (nonEmptyCells.length >= 3 && !isMetadataRow) {
+          headerRowIndex = i;
+          actualHeaders = row.map((cell: any) => String(cell || '').trim());
+          console.log(`✅ Found headers at row ${i + 1} (index ${i}) for "${sheetName}"`);
+          console.log(`Headers:`, actualHeaders.slice(0, 10));
+          break;
+        }
       }
     }
+    
+    if (headerRowIndex === -1 || actualHeaders.length === 0) {
+      console.log(`❌ No valid headers found in sheet "${sheetName}"`);
+      return [];
+    }
+    
+    console.log(`📋 Headers for "${sheetName}":`, {
+      count: actualHeaders.length,
+      headers: actualHeaders.slice(0, 10),
+      columnH: actualHeaders[7] || 'NOT FOUND'
+    });
+    
+    const data: SheetData[] = [];
 
     // Convert rows to objects using headers as keys
     // Start from after the header row
@@ -135,19 +160,19 @@ export async function fetchSheetData(
       const rowData: SheetData = {};
 
       // Map each header to its corresponding cell value
+      // Also add column position info for columns with empty headers
       actualHeaders.forEach((header, index) => {
+        const cellValue = row[index];
+        const stringValue = (cellValue !== undefined && cellValue !== null) ? String(cellValue).trim() : '';
+        
         if (header && String(header).trim() !== '') {
-          // Get the actual cell value for this row
-          const cellValue = row[index];
-          
-          // Convert to string and trim, or use empty string if null/undefined
-          if (cellValue !== undefined && cellValue !== null) {
-            const stringValue = String(cellValue).trim();
-            rowData[String(header)] = stringValue;
-          } else {
-            rowData[String(header)] = '';
-          }
+          // Add with header name as key
+          rowData[String(header)] = stringValue;
         }
+        
+        // Always add column position info (e.g., _col0, _col1, etc.) for accessing by position
+        // This allows us to access column H (index 7) even if header is empty
+        rowData[`_col${index}`] = stringValue;
       });
 
       // Only add row if it has at least one non-empty value
@@ -162,6 +187,12 @@ export async function fetchSheetData(
         data.push(rowData);
       }
     }
+
+    console.log(`✅ Processed "${sheetName}":`, {
+      totalRowsProcessed: data.length,
+      sampleRow: data[0],
+      sampleRowCol7: data[0]?.['_col7']
+    });
 
     return data;
 
@@ -193,8 +224,16 @@ export async function fetchAllSheets(
 
     if (feedbacksSpreadsheetId) {
       [mentorFeedbacks, candidateFeedbacks, mentors, mentees] = await Promise.all([
-        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').catch((err) => {
-          console.error('Error fetching Mentor Feedbacks:', err.message);
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').then((data) => {
+          console.log('✅ Fetched Mentor Feedbacks sheet:', {
+            count: data.length,
+            firstRow: data[0],
+            firstRowKeys: data[0] ? Object.keys(data[0]) : [],
+            sample: data.slice(0, 2)
+          });
+          return data;
+        }).catch((err) => {
+          console.error('❌ Error fetching Mentor Feedbacks:', err.message);
           return [];
         }),
         fetchSheetData(feedbacksSpreadsheetId, 'Candidate feedback form filled by mentors').catch((err) => {

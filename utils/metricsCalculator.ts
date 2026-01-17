@@ -120,6 +120,12 @@ export function normalizeSessionStatus(raw?: string) {
  * @param allSessionsForRating - All sessions for rating calculation (optional, defaults to sessions)
  */
 export function calculateMentorMetrics(sessions: Session[], allSessionsForRating?: Session[], mentorFeedbacks?: any[]): MentorMetrics[] {
+  console.log('=== calculateMentorMetrics called ===');
+  console.log('mentorFeedbacks:', mentorFeedbacks);
+  console.log('mentorFeedbacks type:', typeof mentorFeedbacks);
+  console.log('mentorFeedbacks is array:', Array.isArray(mentorFeedbacks));
+  console.log('mentorFeedbacks length:', mentorFeedbacks?.length);
+  
   const mentorMap = new Map<string, MentorMetrics>();
 
   sessions.forEach((session) => {
@@ -178,102 +184,146 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
     }
   });
 
-  // Calculate average ratings directly from mentorFeedbacks sheet (if provided)
-  // This is the primary source for mentor ratings - feedbacks from candidates about mentors
-  // Check if mentorFeedbacks is provided and is a non-empty array
+  // Calculate average ratings directly from mentorFeedbacks sheet
+  // Simple approach: Get mentor name and column H rating, calculate average per mentor
+  console.log('Checking mentorFeedbacks condition:', {
+    exists: !!mentorFeedbacks,
+    isArray: Array.isArray(mentorFeedbacks),
+    length: mentorFeedbacks?.length
+  });
+  
   if (mentorFeedbacks && Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
-    // Rating column name in the mentor feedbacks sheet
-    const ratingColumnName = 'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?';
+    console.log('✅ Processing mentorFeedbacks, count:', mentorFeedbacks.length);
     
-    // Group feedbacks by mentor name and extract ratings
+    // Group ratings by mentor name
     const mentorRatingMap = new Map<string, number[]>();
     
-    mentorFeedbacks.forEach((feedback) => {
-      const mentorName = (feedback['Mentor Name'] || feedback['mentorName'] || '').trim();
-      if (!mentorName) return;
-      
-      // Get rating value
-      const ratingValue = feedback[ratingColumnName] || 
-                         feedback['Rating'] || 
-                         feedback['rating'] ||
-                         feedback['Overall Rating'] ||
-                         '';
-      
-      if (!ratingValue) return;
-      
-      // Parse rating as number
-      const ratingStr = String(ratingValue).trim();
-      const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
-      
-      if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
-        const normalizedMentorName = mentorName.toLowerCase();
-        if (!mentorRatingMap.has(normalizedMentorName)) {
-          mentorRatingMap.set(normalizedMentorName, []);
-        }
-        mentorRatingMap.get(normalizedMentorName)!.push(numericRating);
-      }
+    // Debug: Log first feedback to see structure
+    console.log('First mentor feedback sample:', {
+      keys: Object.keys(mentorFeedbacks[0]),
+      allKeys: Object.keys(mentorFeedbacks[0]).slice(0, 10),
+      col7: mentorFeedbacks[0]['_col7'],
+      mentorName: mentorFeedbacks[0]['Mentor Name'] || mentorFeedbacks[0]['mentorName'],
+      firstRow: mentorFeedbacks[0]
     });
     
-    // Apply ratings to mentor metrics by matching mentor names
-    mentorMap.forEach((metrics, email) => {
-      const normalizedMentorName = (metrics.mentorName || '').trim().toLowerCase();
-      let ratings = mentorRatingMap.get(normalizedMentorName) || [];
+    mentorFeedbacks.forEach((feedback) => {
+      // Get mentor name - try all possible column names
+      const mentorName = (feedback['Mentor Name'] || 
+                         feedback['mentorName'] || 
+                         feedback['Mentor'] ||
+                         feedback['mentor'] ||
+                         feedback['Mentor Email'] ||
+                         feedback['mentorEmail'] || '').trim();
       
-      // If no match by name, try to find by email or alternative name matching
-      if (ratings.length === 0) {
-        // Try to find feedbacks that might have email matching or name variations
-        const feedbacksForMentor = mentorFeedbacks.filter((fb: any) => {
-          const fbMentorName = (fb['Mentor Name'] || fb['mentorName'] || '').trim().toLowerCase();
-          const fbMentorEmail = (fb['Mentor Email'] || fb['mentorEmail'] || '').trim().toLowerCase();
-          
-          // Match by exact name
-          if (fbMentorName === normalizedMentorName) return true;
-          
-          // Match by email
-          if (fbMentorEmail && email && fbMentorEmail === email) return true;
-          
-          // Match by partial name (handle cases where names might have slight variations)
-          if (fbMentorName && normalizedMentorName) {
-            // Check if either name contains the other (for handling middle names, etc.)
-            if (fbMentorName.includes(normalizedMentorName) || normalizedMentorName.includes(fbMentorName)) {
-              // Only match if they share the same first and last name parts
-              const fbNameParts = fbMentorName.split(/\s+/).filter((p: string) => p.length > 0);
-              const sessionNameParts = normalizedMentorName.split(/\s+/).filter((p: string) => p.length > 0);
-              if (fbNameParts.length > 0 && sessionNameParts.length > 0) {
-                // Check if first and last parts match
-                if (fbNameParts[0] === sessionNameParts[0] && 
-                    fbNameParts[fbNameParts.length - 1] === sessionNameParts[sessionNameParts.length - 1]) {
-                  return true;
-                }
-              }
-            }
-          }
-          
-          return false;
-        });
-        
-        // Extract ratings from these feedbacks
-        ratings = feedbacksForMentor
-          .map((fb: any) => {
-            const ratingValue = fb[ratingColumnName] || fb['Rating'] || fb['rating'] || fb['Overall Rating'] || '';
-            if (!ratingValue) return null;
-            const ratingStr = String(ratingValue).trim();
-            const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
-            if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
-              return numericRating;
-            }
-            return null;
-          })
-          .filter((r): r is number => r !== null);
+      if (!mentorName) {
+        return;
       }
       
+      // Get rating from column H - use the actual column header name first
+      // Column H header: "On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?"
+      const ratingColumnNames = [
+        'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?',
+        'On a scale of 1 to 5',
+        'Overall Experience Rating',
+        'Overall Rating',
+        'Rating',
+        'rating'
+      ];
+      
+      let actualRatingValue = null;
+      let ratingSource = 'none';
+      
+      // First, try to get by column header name (most reliable)
+      for (const colName of ratingColumnNames) {
+        if (feedback[colName] !== undefined && feedback[colName] !== null && feedback[colName] !== '') {
+          actualRatingValue = feedback[colName];
+          ratingSource = `header: ${colName}`;
+          break;
+        }
+      }
+      
+      // If not found by name, try _col7 (column H, index 7)
+      if (actualRatingValue === null || actualRatingValue === undefined || actualRatingValue === '') {
+        if (feedback['_col7'] !== undefined && feedback['_col7'] !== null && feedback['_col7'] !== '') {
+          actualRatingValue = feedback['_col7'];
+          ratingSource = '_col7';
+        }
+      }
+      
+      // If still not found, try to get it from values array by index 7
+      if (actualRatingValue === undefined || actualRatingValue === null || actualRatingValue === '') {
+        const values = Object.values(feedback);
+        if (values.length > 7) {
+          actualRatingValue = values[7];
+          ratingSource = 'values[7]';
+        }
+      }
+      
+      // Debug logging for first feedback
+      if (mentorFeedbacks.indexOf(feedback) === 0) {
+        console.log('🔍 Rating extraction debug:', {
+          mentorName,
+          ratingValue: actualRatingValue,
+          ratingSource,
+          col7: feedback['_col7'],
+          col6: feedback['_col6'],
+          col8: feedback['_col8'],
+          ratingHeader: feedback['On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?'],
+          allKeys: Object.keys(feedback).slice(0, 15),
+          allValues: Object.values(feedback).slice(0, 15).map(v => String(v).substring(0, 20))
+        });
+      }
+      
+      if (actualRatingValue === null || actualRatingValue === undefined || actualRatingValue === '') {
+        return;
+      }
+      
+      const ratingStr = String(actualRatingValue).trim();
+      if (ratingStr === '' || ratingStr === 'N/A' || ratingStr === 'null' || ratingStr === 'undefined') {
+        return;
+      }
+      
+      // Parse as number
+      const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
+      if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
+        return;
+      }
+      
+      // Add to map (normalize name to lowercase for matching)
+      const normalizedMentorName = mentorName.toLowerCase();
+      if (!mentorRatingMap.has(normalizedMentorName)) {
+        mentorRatingMap.set(normalizedMentorName, []);
+      }
+      mentorRatingMap.get(normalizedMentorName)!.push(numericRating);
+    });
+    
+    // Debug: Log rating map
+    console.log('Mentor rating map size:', mentorRatingMap.size);
+    console.log('Mentor rating map sample:', Array.from(mentorRatingMap.entries()).slice(0, 5));
+    
+    // Apply ratings to mentor metrics by matching mentor names (case-insensitive)
+    console.log('Applying ratings to', mentorMap.size, 'mentors');
+    mentorMap.forEach((metrics, email) => {
+      const normalizedMentorName = (metrics.mentorName || '').trim().toLowerCase();
+      const ratings = mentorRatingMap.get(normalizedMentorName) || [];
+      
       if (ratings.length > 0) {
-        metrics.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10; // Round to 1 decimal
+        const sum = ratings.reduce((a, b) => a + b, 0);
+        metrics.avgRating = Math.round((sum / ratings.length) * 100) / 100; // Round to 2 decimals
+        console.log(`✅ Mentor ${metrics.mentorName}: ${ratings.length} ratings, avg: ${metrics.avgRating}`);
       } else {
         metrics.avgRating = 0;
+        console.log(`❌ Mentor ${metrics.mentorName}: No ratings found (searched for: "${normalizedMentorName}")`);
       }
     });
   } else {
+    console.log('❌ mentorFeedbacks is empty or invalid:', {
+      mentorFeedbacks,
+      isArray: Array.isArray(mentorFeedbacks),
+      length: mentorFeedbacks?.length
+    });
+    
     // Fallback: Try to extract from sessions if mentorFeedbacks not provided
     const sessionsForRating = allSessionsForRating || sessions;
     mentorMap.forEach((metrics, email) => {
@@ -303,7 +353,35 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
     });
   }
 
-  return Array.from(mentorMap.values());
+  // Deduplicate by email (case-insensitive) before returning
+  // This ensures we don't have duplicate mentors with different email formats
+  const deduplicatedMetrics = new Map<string, MentorMetrics>();
+  
+  Array.from(mentorMap.values()).forEach(metrics => {
+    const emailKey = (metrics.mentorEmail || '').trim().toLowerCase();
+    if (emailKey) {
+      // If we already have this email, merge the metrics (prefer the one with more sessions)
+      const existing = deduplicatedMetrics.get(emailKey);
+      if (existing) {
+        // Merge: keep the one with more sessions or better data
+        if (metrics.sessionsDone > existing.sessionsDone || 
+            (metrics.sessionsDone === existing.sessionsDone && metrics.avgRating > existing.avgRating)) {
+          deduplicatedMetrics.set(emailKey, metrics);
+        }
+      } else {
+        deduplicatedMetrics.set(emailKey, metrics);
+      }
+    }
+  });
+  
+  const result = Array.from(deduplicatedMetrics.values());
+  
+  console.log('📋 Final mentor metrics:', {
+    count: result.length,
+    mentors: result.map(m => ({ name: m.mentorName, email: m.mentorEmail, avgRating: m.avgRating }))
+  });
+  
+  return result;
 }
 
 /**
@@ -1283,62 +1361,60 @@ export function calculateMentorSessionStats(
     let ratings: number[] = [];
     
     if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
-      // Rating column name in the mentor feedbacks sheet
-      const ratingColumnName = 'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?';
-      
-      // Get mentor name for matching (normalized)
+      // Get mentor name for matching (normalized, case-insensitive)
       const mentorName = (stats.mentorName || '').trim().toLowerCase();
-      const normalizedEmail = email.toLowerCase();
       
-      
-      // Extract ratings from mentorFeedbacks for this mentor
-      // Try multiple matching strategies
+      // Simple approach: Find all feedbacks for this mentor by name match
       const feedbacksForMentor = mentorFeedbacks.filter((fb: any) => {
-        const fbMentorName = (fb['Mentor Name'] || fb['mentorName'] || '').trim().toLowerCase();
-        const fbMentorEmail = (fb['Mentor Email'] || fb['mentorEmail'] || '').trim().toLowerCase();
-        
-        // Match by exact name (case-insensitive)
-        if (fbMentorName && mentorName && fbMentorName === mentorName) {
-          return true;
-        }
-        // Match by email (case-insensitive)
-        if (fbMentorEmail && normalizedEmail && fbMentorEmail === normalizedEmail) {
-          return true;
-        }
-        // Match by partial name (handle cases where names might have slight variations)
-        if (fbMentorName && mentorName) {
-          // Check if either name contains the other (for handling middle names, etc.)
-          if (fbMentorName.includes(mentorName) || mentorName.includes(fbMentorName)) {
-            // Only match if they share the same first and last name parts
-            const fbNameParts = fbMentorName.split(/\s+/).filter((p: string) => p.length > 0);
-            const sessionNameParts = mentorName.split(/\s+/).filter((p: string) => p.length > 0);
-            if (fbNameParts.length > 0 && sessionNameParts.length > 0) {
-              // Check if first and last parts match
-              if (fbNameParts[0] === sessionNameParts[0] && 
-                  fbNameParts[fbNameParts.length - 1] === sessionNameParts[sessionNameParts.length - 1]) {
-                return true;
-              }
-            }
-          }
-        }
-        return false;
+        const fbMentorName = (fb['Mentor Name'] || 
+                              fb['mentorName'] || 
+                              fb['Mentor'] ||
+                              fb['mentor'] || '').trim().toLowerCase();
+        return fbMentorName === mentorName;
       });
       
-      // Extract ratings from these feedbacks
+      // Extract ratings from column H - use the actual column header name first
+      const ratingColumnNames = [
+        'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?',
+        'On a scale of 1 to 5',
+        'Overall Experience Rating',
+        'Overall Rating',
+        'Rating',
+        'rating'
+      ];
+      
       ratings = feedbacksForMentor
         .map((fb: any) => {
-          const ratingValue = fb[ratingColumnName] || 
-                             fb['Rating'] || 
-                             fb['rating'] || 
-                             fb['Overall Rating'] || 
-                             '';
-          if (!ratingValue) return null;
-          const ratingStr = String(ratingValue).trim();
-          const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
-          if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
-            return numericRating;
+          let ratingValue = null;
+          
+          // First, try to get by column header name (most reliable)
+          for (const colName of ratingColumnNames) {
+            if (fb[colName] !== undefined && fb[colName] !== null && fb[colName] !== '') {
+              ratingValue = fb[colName];
+              break;
+            }
           }
-          return null;
+          
+          // If not found by name, try _col7 (column H, index 7)
+          if (ratingValue === null || ratingValue === undefined || ratingValue === '') {
+            ratingValue = fb['_col7'];
+          }
+          
+          if (ratingValue === null || ratingValue === undefined || ratingValue === '') {
+            return null;
+          }
+          
+          const ratingStr = String(ratingValue).trim();
+          if (ratingStr === '' || ratingStr === 'N/A' || ratingStr === 'null' || ratingStr === 'undefined') {
+            return null;
+          }
+          
+          const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
+          if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
+            return null;
+          }
+          
+          return numericRating;
         })
         .filter((r): r is number => r !== null);
     }

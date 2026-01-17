@@ -234,6 +234,14 @@ export default function MentorDashboard() {
 
           const result = await response.json();
 
+          console.log('API Response:', {
+            success: result.success,
+            hasSessions: !!result.data?.sessions,
+            hasMentorFeedbacks: !!result.data?.mentorFeedbacks,
+            mentorFeedbacksLength: result.data?.mentorFeedbacks?.length,
+            mentorFeedbacksSample: result.data?.mentorFeedbacks?.slice(0, 2)
+          });
+
           if (response.ok && result.success && result.data.sessions) {
             const { parseSpreadsheetData } = await import('@/utils/metricsCalculator');
             const parsedSessions = parseSpreadsheetData(
@@ -243,7 +251,9 @@ export default function MentorDashboard() {
             );
             setSessions(parsedSessions);
             // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
-            setMentorFeedbacks(Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : []);
+            const mentorFb = Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : [];
+            console.log('Setting mentorFeedbacks:', mentorFb.length);
+            setMentorFeedbacks(mentorFb);
           }
         } catch (error) {
         }
@@ -544,26 +554,41 @@ export default function MentorDashboard() {
       return [];
     }
     
-    // For rating calculation, always try to use mentorFeedbacks if available
-    // Priority: filteredMentorFeedbacks (when filters applied) > mentorFeedbacks > undefined
-    let feedbacksForRating: any[] | undefined = undefined;
+    console.log('=== mentorMetrics useMemo ===');
+    console.log('mentorFeedbacks from context:', mentorFeedbacks);
+    console.log('mentorFeedbacks length:', mentorFeedbacks?.length);
     
-    // First, check if we have any mentorFeedbacks at all
-    if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
-      // We have mentorFeedbacks - use filtered version if filters are applied, otherwise use all
-      if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
-        // Filters are applied - use filtered feedbacks (even if empty, it means no matches)
-        feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : mentorFeedbacks;
+    // For rating calculation, always pass mentorFeedbacks (even if empty) so function can handle it
+    // Priority: filteredMentorFeedbacks (when filters applied) > mentorFeedbacks
+    let feedbacksForRating: any[] = [];
+    
+    // Always use mentorFeedbacks if it's an array (even if empty)
+    if (Array.isArray(mentorFeedbacks)) {
+      if (mentorFeedbacks.length > 0) {
+        console.log('✅ Using mentorFeedbacks, count:', mentorFeedbacks.length);
+        // We have mentorFeedbacks - use filtered version if filters are applied, otherwise use all
+        if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+          // Filters are applied - use filtered feedbacks (even if empty, it means no matches)
+          feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : mentorFeedbacks;
+          console.log('Using filtered feedbacks, count:', feedbacksForRating.length);
+        } else {
+          // No filters - use all mentorFeedbacks
+          feedbacksForRating = mentorFeedbacks;
+          console.log('Using all mentorFeedbacks, count:', feedbacksForRating.length);
+        }
       } else {
-        // No filters - use all mentorFeedbacks
-        feedbacksForRating = mentorFeedbacks;
+        console.log('⚠️ mentorFeedbacks is empty array');
+        feedbacksForRating = [];
       }
+    } else {
+      console.log('❌ mentorFeedbacks is not an array');
+      feedbacksForRating = [];
     }
-    // If no mentorFeedbacks, leave as undefined to trigger fallback to session-based ratings
     
     // For other metrics (sessions done, cancelled, etc.), use filtered sessions
     const metrics = calculateMentorMetrics(filteredSessions, sessions, feedbacksForRating);
     
+    console.log('Returning metrics, count:', metrics.length);
     return metrics;
   }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter]);
 
@@ -606,6 +631,13 @@ export default function MentorDashboard() {
 
       const result = await response.json();
 
+      console.log('Refresh API Response:', {
+        success: result.success,
+        hasSessions: !!result.data?.sessions,
+        hasMentorFeedbacks: !!result.data?.mentorFeedbacks,
+        mentorFeedbacksLength: result.data?.mentorFeedbacks?.length
+      });
+
       if (response.ok && result.success && result.data.sessions) {
         const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
         const parsedSessions = parseSpreadsheetData(
@@ -618,7 +650,9 @@ export default function MentorDashboard() {
         setMentees(parsedMentees);
         setCandidateFeedbacks(result.data.candidateFeedbacks || []);
         // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
-        setMentorFeedbacks(Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : []);
+        const mentorFb = Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : [];
+        console.log('Setting mentorFeedbacks on refresh:', mentorFb.length);
+        setMentorFeedbacks(mentorFb);
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -677,10 +711,62 @@ export default function MentorDashboard() {
       };
     }
 
-    const mentorsWithRatings = mentorMetrics.filter(m => m.avgRating > 0);
-    const avgRating = mentorsWithRatings.length > 0
-      ? mentorsWithRatings.reduce((sum, m) => sum + m.avgRating, 0) / mentorsWithRatings.length
+    // Calculate average rating from ALL individual feedbacks (not average of mentor averages)
+    // This gives the true average across all feedbacks
+    const allRatings: number[] = [];
+    
+    // Collect all individual ratings from mentorFeedbacks
+    if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
+      const ratingColumnNames = [
+        'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?',
+        'On a scale of 1 to 5',
+        'Overall Experience Rating',
+        'Overall Rating',
+        'Rating',
+        'rating'
+      ];
+      
+      mentorFeedbacks.forEach((feedback) => {
+        let ratingValue = null;
+        
+        // Try to get by column header name first
+        for (const colName of ratingColumnNames) {
+          if (feedback[colName] !== undefined && feedback[colName] !== null && feedback[colName] !== '') {
+            ratingValue = feedback[colName];
+            break;
+          }
+        }
+        
+        // Fallback to _col7
+        if (ratingValue === null || ratingValue === undefined || ratingValue === '') {
+          ratingValue = feedback['_col7'];
+        }
+        
+        if (ratingValue !== null && ratingValue !== undefined && ratingValue !== '') {
+          const ratingStr = String(ratingValue).trim();
+          if (ratingStr !== '' && ratingStr !== 'N/A' && ratingStr !== 'null' && ratingStr !== 'undefined') {
+            const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
+            if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
+              allRatings.push(numericRating);
+            }
+          }
+        }
+      });
+    }
+    
+    // Calculate average of all individual ratings
+    const avgRating = allRatings.length > 0
+      ? allRatings.reduce((sum, r) => sum + r, 0) / allRatings.length
       : 0;
+    
+    // Debug logging
+    console.log('📊 Aggregate Average Rating Calculation:', {
+      totalMentors: mentorMetrics.length,
+      totalFeedbacks: allRatings.length,
+      allRatings: allRatings,
+      sumOfRatings: allRatings.reduce((sum, r) => sum + r, 0),
+      calculatedAverage: avgRating
+    });
 
     return {
       totalMentors: mentorMetrics.length,

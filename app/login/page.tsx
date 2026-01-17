@@ -142,15 +142,6 @@ export default function LoginPage() {
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
-
-          {/* Info Section */}
-          <div className="mt-8 pt-6 border-t" style={{ borderColor: '#3A5A5A' }}>
-            <p className="text-xs text-gray-400 text-center">
-              Admin: Use @gradnext.co email with Gradnext@2026
-              <br />
-              MESA: Use any email with Student@2026
-            </p>
-          </div>
         </div>
       </div>
     </div>
