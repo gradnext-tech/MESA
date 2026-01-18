@@ -224,6 +224,16 @@ export default function MentorDashboard() {
   // Check if user is a mentor (for filtering)
   const isMentorUser = accessLevel === 'mentor';
 
+  const loggedInMentorName = useMemo(() => {
+    if (!isMentorUser) return null;
+    const normalizedEmail = (loggedInEmail || '').trim().toLowerCase();
+    const fromSession = sessions.find(s => (s.mentorEmail || '').trim().toLowerCase() === normalizedEmail);
+    const name = (fromSession?.mentorName || '').trim();
+    if (name) return name;
+    if (normalizedEmail) return normalizedEmail.split('@')[0];
+    return 'Mentor';
+  }, [isMentorUser, loggedInEmail, sessions]);
+
   // Auto-fetch data if not available (when navigating directly to this page)
   React.useEffect(() => {
     if (!hasData) {
@@ -565,6 +575,103 @@ export default function MentorDashboard() {
     return filtered;
   }, [mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, sessions, filteredSessions, isMentorUser, loggedInEmail]);
 
+  // Build a mentor-only, anonymized feedback table (no mentee names)
+  const mentorFeedbackParameterRows = useMemo(() => {
+    if (!isMentorUser) return [];
+    if (!Array.isArray(filteredMentorFeedbacks) || filteredMentorFeedbacks.length === 0) return [];
+
+    const dateFields = [
+      'Session Date',
+      'sessionDate',
+      'Date',
+      'date',
+      'Date of Session',
+      'SessionDate',
+      'Timestamp',
+      'timestamp',
+      'When was the session?',
+      'Session date and time',
+      'Date/Time',
+      'dateTime',
+      'DateTime',
+    ];
+
+    const getDateStr = (fb: any): string => {
+      for (const field of dateFields) {
+        const v = fb[field];
+        if (v && String(v).trim()) return String(v).trim();
+        const lowerField = field.toLowerCase();
+        for (const key in fb) {
+          if (key.toLowerCase() === lowerField && fb[key] && String(fb[key]).trim()) {
+            return String(fb[key]).trim();
+          }
+        }
+      }
+      return '';
+    };
+
+    const getOverallRating = (fb: any): number | null => {
+      const candidates = [
+        'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?',
+        '"On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?"',
+        'On a scale of 1 to 5',
+        'Overall Rating',
+        'overall rating',
+        'Overall Experience Rating',
+        'Rating',
+        'rating',
+      ];
+
+      let value: any = null;
+      for (const k of candidates) {
+        if (fb[k] !== undefined && fb[k] !== null && fb[k] !== '') {
+          value = fb[k];
+          break;
+        }
+      }
+      if (value === null || value === undefined || value === '') {
+        // Column H fallback (index 7)
+        const keys = Object.keys(fb);
+        if (keys.length >= 8) value = fb[keys[7]];
+      }
+      if (value === null || value === undefined || value === '') return null;
+      const num = parseFloat(String(value).trim().replace(/[^0-9.]/g, ''));
+      if (isNaN(num) || num < 1 || num > 5) return null;
+      return num;
+    };
+
+    const pick = (fb: any, key: string) => {
+      const v = fb[key];
+      if (v === undefined || v === null) return '';
+      return String(v).trim();
+    };
+
+    const rows = filteredMentorFeedbacks.map((fb: any) => {
+      const dateStr = getDateStr(fb);
+      const parsed = dateStr ? parseSessionDate(dateStr) : null;
+
+      return {
+        sortDate: parsed?.getTime() ?? 0,
+        dateStr,
+        overall: getOverallRating(fb),
+        onTime: pick(fb, 'Did the mentor join the session on time?'),
+        facilitation: pick(
+          fb,
+          'How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)'
+        ),
+        feedbackQuality: pick(
+          fb,
+          'How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)'
+        ),
+        suggestions: pick(fb, 'How could it have been made better and any suggestions for the gradnext team or mentor'),
+      };
+    });
+
+    // Most recent first
+    rows.sort((a, b) => b.sortDate - a.sortDate);
+    return rows;
+  }, [isMentorUser, filteredMentorFeedbacks]);
+
   const mentorMetrics = useMemo(() => {
     if (!hasData) {
       return [];
@@ -622,7 +729,8 @@ export default function MentorDashboard() {
   const mentorSessions = useMemo(() => {
     if (!selectedMentor) return [];
     // Use filteredSessions to respect applied filters
-    return filteredSessions.filter(s => s.mentorEmail === selectedMentor.mentorEmail);
+    const selectedEmail = (selectedMentor.mentorEmail || '').trim().toLowerCase();
+    return filteredSessions.filter(s => (s.mentorEmail || '').trim().toLowerCase() === selectedEmail);
   }, [selectedMentor, filteredSessions]);
 
   const handleRefresh = async () => {
@@ -895,11 +1003,11 @@ export default function MentorDashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white">
-              {isMentorUser ? 'My Performance Dashboard' : 'Mentor Dashboard'}
+              {isMentorUser ? `Hello ${loggedInMentorName}` : 'Mentor Dashboard'}
             </h1>
             <p className="text-gray-300 mt-1">
               {isMentorUser 
-                ? `Your personal statistics and performance metrics`
+                ? `Performance analytics`
                 : `Performance metrics for ${aggregateMetrics.totalMentors} mentors`
               }
             </p>
@@ -1047,11 +1155,11 @@ export default function MentorDashboard() {
           subtitle={isMentorUser ? "Your sessions per week" : "Sessions per week"}
         />
         <MetricCard
-          title="Cancelled/No-Show"
-          value={aggregateMetrics.totalCancelled + aggregateMetrics.totalNoShow}
+          title="Disruptions"
+          value={aggregateMetrics.totalCancelled + aggregateMetrics.totalNoShow + aggregateMetrics.totalRescheduled}
           icon={XCircle}
           iconColor="text-red-400"
-          subtitle={isMentorUser ? "Your disruptions" : "Total disruptions"}
+          subtitle={isMentorUser ? "Your cancelled / no-show / rescheduled" : "Cancelled / no-show / rescheduled"}
         />
         <MetricCard
           title="Feedbacks Not Filled"
@@ -1061,6 +1169,64 @@ export default function MentorDashboard() {
           subtitle={isMentorUser ? "Your sessions without feedback" : "Completed sessions without feedback"}
         />
       </div>
+
+      {/* Mentor Parameter Ratings Table (Mentor only, anonymized) */}
+      {isMentorUser && (
+        <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
+            <h3 className="text-lg font-semibold text-white">My Feedback Parameter Ratings</h3>
+            <p className="text-xs text-gray-400 mt-1">Mentee names are hidden in this view</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Overall</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Joined on time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Facilitation</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Feedback quality</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Suggestions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                {mentorFeedbackParameterRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                      No feedback entries available (or none match the current filters)
+                    </td>
+                  </tr>
+                ) : (
+                  mentorFeedbackParameterRows.map((r, idx) => (
+                    <tr
+                      key={`${r.dateStr}-${idx}`}
+                      className="transition-colors"
+                      style={{ borderColor: '#3A5A5A' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1A3636')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2A4A4A')}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                        {r.overall !== null ? r.overall.toFixed(2) : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                        {r.onTime || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300">
+                        {r.facilitation || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300">
+                        {r.feedbackQuality || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300">
+                        {r.suggestions ? (r.suggestions.length > 90 ? `${r.suggestions.slice(0, 90)}…` : r.suggestions) : 'N/A'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Top Mentors by Rating - Horizontal Bar Chart Style (Admin only) */}
       {!isMentorUser && (
@@ -1257,10 +1423,25 @@ export default function MentorDashboard() {
                 mentorSessionStats.map((stat) => (
                   <tr
                     key={`${stat.mentorEmail}-${stat.mentorName}`}
-                    className="transition-colors"
+                    className="transition-colors cursor-pointer"
                     style={{ borderColor: '#3A5A5A' }}
                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
                     onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+                    onClick={() => {
+                      // Open mentor detail modal for this row
+                      const mentor: MentorMetrics = {
+                        mentorName: stat.mentorName,
+                        mentorEmail: stat.mentorEmail,
+                        avgRating: stat.avgRating,
+                        sessionsDone: stat.completed,
+                        sessionsCancelled: stat.cancelled,
+                        sessionsNoShow: stat.mentorNoShow,
+                        sessionsRescheduled: stat.rescheduled,
+                        feedbacksFilled: stat.feedbacksNotFilled, // this field is used as "not filled" count
+                      };
+                      setSelectedMentor(mentor);
+                      setIsModalOpen(true);
+                    }}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
@@ -1330,6 +1511,7 @@ export default function MentorDashboard() {
           name={selectedMentor.mentorName}
           email={selectedMentor.mentorEmail}
           sessions={mentorSessions}
+          mentorFeedbacks={mentorFeedbacks}
         />
       )}
     </div>

@@ -65,50 +65,39 @@ export function normalizeSessionStatus(raw?: string) {
   // Handle pending
   if (value === 'pending') return 'pending';
 
-  // Handle student disruptions first (to avoid matching mentor disruptions)
-  // Check for student/candidate no show
-  if ((value.includes('student') || value.includes('mentee') || value.includes('candidate')) && 
-      (value.includes('no show') || value.includes('no-show') || value.includes('noshow'))) {
+  // Determine who caused the disruption (mentor vs student/mentee/candidate vs admin)
+  const hasMentor = value.includes('mentor');
+  const hasAdmin = value.includes('admin');
+  const hasStudentSide = value.includes('student') || value.includes('mentee') || value.includes('candidate');
+
+  const isNoShow = value.includes('no show') || value.includes('no-show') || value.includes('noshow');
+  const isCancel = value.includes('cancel');
+  // Be tolerant to typos like "resheduled"
+  const isReschedule = value.includes('resch') || value.includes('re-schedule');
+
+  // No-show
+  if (isNoShow) {
+    if (hasMentor) return 'mentor_no_show';
+    // Admin no-show isn't tracked separately; treat as unknown
+    if (hasAdmin) return 'unknown';
+    // If it doesn't explicitly say mentor/admin, treat as student-side no-show
     return 'student_no_show';
   }
-  // Check for student cancelled
-  if ((value.includes('student') || value.includes('mentee')) && value.includes('cancel')) {
+
+  // Cancelled
+  if (isCancel) {
+    if (hasMentor) return 'mentor_cancelled';
+    if (hasAdmin) return 'admin_cancelled';
+    // If it doesn't explicitly say mentor/admin, treat as student-side cancellation
     return 'student_cancelled';
   }
-  // Check for student rescheduled
-  if ((value.includes('student') || value.includes('mentee')) && value.includes('reschedule')) {
+
+  // Rescheduled
+  if (isReschedule) {
+    if (hasMentor) return 'mentor_rescheduled';
+    if (hasAdmin) return 'admin_rescheduled';
+    // If it doesn't explicitly say mentor/admin, treat as student-side reschedule
     return 'student_rescheduled';
-  }
-
-  // Handle mentor disruptions - be more flexible with matching
-  // Check for mentor no show (must check mentor first to avoid matching mentee)
-  if (value.includes('mentor') && (value.includes('no show') || value.includes('no-show') || value.includes('noshow'))) {
-    return 'mentor_no_show';
-  }
-  // Check for mentor cancelled
-  if (value.includes('mentor') && value.includes('cancel')) {
-    return 'mentor_cancelled';
-  }
-  // Check for mentor rescheduled
-  if (value.includes('mentor') && value.includes('reschedule')) {
-    return 'mentor_rescheduled';
-  }
-
-  // Handle admin disruptions (not counted as disruptions for either dashboard)
-  if (value.includes('admin') && value.includes('cancel')) {
-    return 'admin_cancelled';
-  }
-  if (value.includes('admin') && value.includes('reschedule')) {
-    return 'admin_rescheduled';
-  }
-
-  // Legacy support for old format (without prefixes) - treat as generic
-  // These should be updated in the spreadsheet, but we'll handle them gracefully
-  if (value === 'cancelled' && !value.includes('mentor') && !value.includes('mentee') && !value.includes('admin')) {
-    return 'unknown_cancelled'; // Don't count in either dashboard
-  }
-  if (value === 'rescheduled' && !value.includes('mentor') && !value.includes('mentee') && !value.includes('admin')) {
-    return 'unknown_rescheduled'; // Don't count in either dashboard
   }
 
   return 'unknown';
@@ -1387,18 +1376,12 @@ export function calculateMentorSessionStats(
         stats.completed++;
         break;
       case 'mentor_cancelled':
-      case 'student_cancelled':
-      case 'admin_cancelled':
-      case 'unknown_cancelled':
         stats.cancelled++;
         break;
       case 'mentor_no_show':
         stats.mentorNoShow++;
         break;
       case 'mentor_rescheduled':
-      case 'student_rescheduled':
-      case 'admin_rescheduled':
-      case 'unknown_rescheduled':
         stats.rescheduled++;
         break;
       case 'pending':
@@ -1597,6 +1580,7 @@ function parseSessionData(sessionData: any[]): Session[] {
       const allKeys = Object.keys(row);
       let mentorFeedbackStatus = '';
       let sessionType = '';
+      let invitationStatus = '';
       
       // Try common column names for column N
       mentorFeedbackStatus = row['Mentor Feedback Status'] || 
@@ -1624,6 +1608,22 @@ function parseSessionData(sessionData: any[]): Session[] {
       if (!sessionType && allKeys.length > 17) {
         sessionType = row[allKeys[17]] || '';
       }
+
+      // Get column J (10th column, index 9) for Invitation Status
+      // Try by column name first, then by position
+      invitationStatus =
+        row['Invitation Status'] ||
+        row['Invitation status'] ||
+        row['Invitation status '] ||
+        row['Invitation status'] ||
+        row['invitationStatus'] ||
+        row['invitation status'] ||
+        row['InvitationStatus'] ||
+        '';
+
+      if (!invitationStatus && allKeys.length > 9) {
+        invitationStatus = row[allKeys[9]] || '';
+      }
       
       return {
       sNo: row['S No'] || row['sNo'] || null, // Use actual value from sheet, null if missing
@@ -1635,7 +1635,7 @@ function parseSessionData(sessionData: any[]): Session[] {
       date: row['Date'] || row['date'] || row['Zoho Time'] || row['zohoTime'] || row['Session Date'] || row['sessionDate'] || '',
     time: row['Time'] || row['time'] || '',
     inviteTitle: row['Invite Title'] || row['inviteTitle'] || '',
-    invitationStatus: row['Invitation status'] || row['invitationStatus'] || '',
+    invitationStatus: String(invitationStatus || '').trim(),
     mentorConfirmationStatus: row['Mentor Confirmation Status'] || row['mentorConfirmationStatus'] || '',
     studentConfirmationStatus: row['Mentee Confirmation Status'] || row['studentConfirmationStatus'] || '',
     sessionStatus: row['Session Status'] || row['sessionStatus'] || '',
@@ -1649,7 +1649,8 @@ function parseSessionData(sessionData: any[]): Session[] {
     });
 
 
-  return parsed;
+  // Only include sessions where Invitation Status (Column J) is "Sent"
+  return parsed.filter(s => String(s.invitationStatus || '').trim().toLowerCase() === 'sent');
 }
 
 /**

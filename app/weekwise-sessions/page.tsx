@@ -196,12 +196,7 @@ export default function WeekwiseSessions() {
           return;
         }
 
-        // Legacy / unknown cancelled & rescheduled still contribute to high-level aggregates
-        if (status === 'unknown_cancelled') {
-          cancelled++;
-        } else if (status === 'unknown_rescheduled') {
-          rescheduled++;
-        }
+        // No further legacy statuses
       });
 
       return {

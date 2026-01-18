@@ -344,8 +344,8 @@ export default function StudentDashboard() {
   // Calculate unique candidates who have booked sessions (matching Student Directory with MESA sheet)
   // This now respects the week/month/student filters
   const uniqueCandidatesWithSessions = useMemo(() => {
-    // Use filtered sessions instead of all sessions to respect filters
-    const sessionsToUse = filteredSessionsForMetrics.length > 0 ? filteredSessionsForMetrics : sessions;
+    // Use filtered sessions (already completed-only) to respect filters
+    const sessionsToUse = filteredSessionsForMetrics;
     
     if (!hasData || !students || students.length === 0) {
       // If no students directory, fallback to unique emails from filtered sessions
@@ -494,8 +494,8 @@ export default function StudentDashboard() {
     const uniqueCandidates = new Map<string, CandidateSessionStats>();
     
     candidateAnalytics.forEach(c => {
-      // Skip candidates with 0 sessions
-      if (!c.totalSessionsBooked || c.totalSessionsBooked === 0) return;
+      // Only consider completed sessions for this ranking
+      if (!c.completedSessions || c.completedSessions === 0) return;
       
       const normalizedEmail = (c.email || '').trim().toLowerCase();
       const normalizedName = (c.name || '').trim().toLowerCase();
@@ -510,10 +510,10 @@ export default function StudentDashboard() {
       if (!existing) {
         uniqueCandidates.set(key, c);
       } else {
-        // If duplicate, keep the one with more sessions
-        if (c.totalSessionsBooked > existing.totalSessionsBooked) {
+        // If duplicate, keep the one with more completed sessions
+        if (c.completedSessions > existing.completedSessions) {
           uniqueCandidates.set(key, c);
-        } else if (c.totalSessionsBooked === existing.totalSessionsBooked) {
+        } else if (c.completedSessions === existing.completedSessions) {
           // If same sessions, prefer the one with better data
           if ((c.email && !existing.email) || (c.name && !existing.name)) {
             uniqueCandidates.set(key, c);
@@ -524,9 +524,9 @@ export default function StudentDashboard() {
     
     const sorted = Array.from(uniqueCandidates.values())
       .sort((a, b) => {
-        // First sort by totalSessionsBooked (descending)
-        if (b.totalSessionsBooked !== a.totalSessionsBooked) {
-          return b.totalSessionsBooked - a.totalSessionsBooked;
+        // First sort by completedSessions (descending)
+        if (b.completedSessions !== a.completedSessions) {
+          return b.completedSessions - a.completedSessions;
         }
         // If equal, sort by name alphabetically
         return (a.name || '').localeCompare(b.name || '');
@@ -542,18 +542,20 @@ export default function StudentDashboard() {
     candidateAnalytics.forEach(c => {
       const normalizedEmail = (c.email || '').trim().toLowerCase();
       if (!normalizedEmail) return;
+      // Only consider candidates who have at least 1 completed session
+      if (!c.completedSessions || c.completedSessions === 0) return;
       
       const existing = uniqueCandidates.get(normalizedEmail);
-      if (!existing || c.totalSessionsBooked < existing.totalSessionsBooked) {
+      if (!existing || c.completedSessions < existing.completedSessions) {
         uniqueCandidates.set(normalizedEmail, c);
       }
     });
     
     const sorted = Array.from(uniqueCandidates.values())
       .sort((a, b) => {
-        // First sort by totalSessionsBooked (ascending)
-        if (a.totalSessionsBooked !== b.totalSessionsBooked) {
-          return a.totalSessionsBooked - b.totalSessionsBooked;
+        // First sort by completedSessions (ascending)
+        if (a.completedSessions !== b.completedSessions) {
+          return a.completedSessions - b.completedSessions;
         }
         // If equal, sort by name alphabetically
         return (a.name || '').localeCompare(b.name || '');
@@ -656,7 +658,7 @@ export default function StudentDashboard() {
 
   const studentSessions = useMemo(() => {
     if (!selectedStudent) return [];
-    return sessions.filter(s => s.studentEmail === selectedStudent.email);
+    return sessions.filter(s => (s.studentEmail || '').trim().toLowerCase() === (selectedStudent.email || '').trim().toLowerCase());
   }, [selectedStudent, sessions]);
 
   const handleRefresh = async () => {
@@ -1095,7 +1097,7 @@ export default function StudentDashboard() {
                       <span className="text-sm font-bold text-[#22C55E] w-6">#{index + 1}</span>
                       <div>
                         <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
-                        <p className="text-xs text-gray-400">{candidate.totalSessionsBooked} sessions</p>
+                        <p className="text-xs text-gray-400">{candidate.completedSessions} sessions done</p>
                       </div>
                     </div>
                   </div>
@@ -1165,7 +1167,7 @@ export default function StudentDashboard() {
                     <span className="text-sm font-bold text-orange-500 w-6">#{index + 1}</span>
                     <div>
                       <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
-                      <p className="text-xs text-gray-400">{candidate.totalSessionsBooked} sessions</p>
+                      <p className="text-xs text-gray-400">{candidate.completedSessions} sessions done</p>
                     </div>
                   </div>
                 </div>

@@ -15,6 +15,7 @@ interface DetailModalProps {
   phone?: string;
   sessions: Session[];
   candidateFeedbacks?: any[];
+  mentorFeedbacks?: any[];
 }
 
 export const DetailModal: React.FC<DetailModalProps> = ({
@@ -26,6 +27,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   phone,
   sessions,
   candidateFeedbacks = [],
+  mentorFeedbacks = [],
 }) => {
   const [selectedSessionIndex, setSelectedSessionIndex] = React.useState<number | null>(null);
   
@@ -172,6 +174,127 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     }
     return null;
   }, [getFullSessionFeedback]);
+
+  // Helper function to get full feedback object for a session (for mentors)
+  // Uses "Mentor Feedbacks filled by candidate" sheet (mentorFeedbacks)
+  const getFullMentorSessionFeedback = React.useCallback((session: Session): any | null => {
+    if (type !== 'mentor' || !Array.isArray(mentorFeedbacks) || mentorFeedbacks.length === 0) {
+      return null;
+    }
+
+    const sessionDateParsed = parseSessionDate(session.date);
+    const mentorEmail = (session.mentorEmail || email || '').trim().toLowerCase();
+    const mentorName = (session.mentorName || name || '').trim().toLowerCase();
+    const candidateEmail = (session.studentEmail || '').trim().toLowerCase();
+    const candidateName = (session.studentName || '').trim().toLowerCase();
+
+    const dateFields = [
+      'Session Date',
+      'sessionDate',
+      'Date',
+      'date',
+      'Date of Session',
+      'SessionDate',
+      'Timestamp',
+      'timestamp',
+      'When was the session?',
+      'Session date and time',
+      'Date/Time',
+      'dateTime',
+      'DateTime',
+    ];
+
+    const getFeedbackDateValue = (fb: any): string => {
+      for (const field of dateFields) {
+        const direct = fb[field];
+        if (direct && String(direct).trim()) return String(direct).trim();
+        const lowerField = field.toLowerCase();
+        for (const key in fb) {
+          if (key.toLowerCase() === lowerField && fb[key] && String(fb[key]).trim()) {
+            return String(fb[key]).trim();
+          }
+        }
+      }
+      // fallback: any key containing "date"
+      for (const key in fb) {
+        if (key.toLowerCase().includes('date') && fb[key] && String(fb[key]).trim()) {
+          return String(fb[key]).trim();
+        }
+      }
+      return '';
+    };
+
+    const normalizeName = (n: string) => n.toLowerCase().trim().replace(/\s+/g, ' ');
+
+    const matched = mentorFeedbacks.find((fb: any) => {
+      const fbMentorEmail = (fb['Mentor Email'] || fb['mentorEmail'] || fb['Mentor Email ID'] || fb['mentorEmailId'] || '').trim().toLowerCase();
+      const fbMentorName = normalizeName((fb['Mentor Name'] || fb['mentorName'] || fb['Mentor'] || fb['mentor'] || '').trim());
+      const fbCandidateEmail = (fb['Candidate Email'] || fb['candidateEmail'] || fb['Candidate Email ID'] || fb['Mentee Email'] || fb['menteeEmail'] || '').trim().toLowerCase();
+      const fbCandidateName = normalizeName((fb['Candidate Name'] || fb['candidateName'] || fb['Candidate'] || fb['candidate'] || fb['Mentee Name'] || fb['menteeName'] || '').trim());
+
+      const emailMatch =
+        (mentorEmail && fbMentorEmail && fbMentorEmail === mentorEmail) ||
+        (mentorName && fbMentorName && (fbMentorName === mentorName || fbMentorName.includes(mentorName) || mentorName.includes(fbMentorName)));
+
+      const candidateMatch =
+        (candidateEmail && fbCandidateEmail && fbCandidateEmail === candidateEmail) ||
+        (candidateName && fbCandidateName && (
+          fbCandidateName === candidateName ||
+          fbCandidateName.split(/\s+/)[0] === candidateName.split(/\s+/)[0]
+        ));
+
+      const feedbackDateStr = getFeedbackDateValue(fb);
+      let dateMatch = false;
+      if (sessionDateParsed && feedbackDateStr) {
+        const fbDate = parseSessionDate(feedbackDateStr);
+        if (fbDate) {
+          dateMatch =
+            fbDate.getFullYear() === sessionDateParsed.getFullYear() &&
+            fbDate.getMonth() === sessionDateParsed.getMonth() &&
+            fbDate.getDate() === sessionDateParsed.getDate();
+        }
+      }
+
+      // Prefer strong match; allow email+candidate without date when date not parseable
+      if (emailMatch && candidateMatch && dateMatch) return true;
+      if (emailMatch && candidateMatch && (!sessionDateParsed || !feedbackDateStr)) return true;
+      if (emailMatch && dateMatch && !candidateEmail && !candidateName) return true;
+      return false;
+    });
+
+    return matched || null;
+  }, [type, mentorFeedbacks, email, name]);
+
+  const getMentorOverallRatingFromFeedback = React.useCallback((fb: any | null): number | null => {
+    if (!fb) return null;
+    const candidates = [
+      'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?',
+      '"On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?"',
+      'On a scale of 1 to 5',
+      'Overall Rating',
+      'Overall rating',
+      'overall rating',
+      'Overall Experience Rating',
+      'Rating',
+      'rating',
+    ];
+    let value: any = null;
+    for (const k of candidates) {
+      if (fb[k] !== undefined && fb[k] !== null && fb[k] !== '') {
+        value = fb[k];
+        break;
+      }
+    }
+    if (value === null || value === undefined || value === '') {
+      // Column H fallback (index 7)
+      const keys = Object.keys(fb);
+      if (keys.length >= 8) value = fb[keys[7]];
+    }
+    if (value === null || value === undefined || value === '') return null;
+    const num = parseFloat(String(value).trim().replace(/[^0-9.]/g, ''));
+    if (isNaN(num) || num < 1 || num > 5) return null;
+    return num;
+  }, []);
 
   // Get recent feedbacks - for students, also check candidateFeedbacks
   const recentFeedbacks = React.useMemo(() => {
@@ -520,13 +643,20 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     {type === 'student' && (
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Session Type</th>
                     )}
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Feedback</th>
+                    {type === 'student' && (
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Feedback</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {sortedSessions.map((session, index) => {
-                    // For students, get full feedback object first (this has all the data)
-                    const fullFeedback = type === 'student' ? getFullSessionFeedback(session) : null;
+                    // For students/mentors, get full feedback object first (this has all the data)
+                    const fullFeedback =
+                      type === 'student'
+                        ? getFullSessionFeedback(session)
+                        : type === 'mentor'
+                          ? getFullMentorSessionFeedback(session)
+                          : null;
                     
                     // Get feedback value for display - prioritize fullFeedback average
                     let feedbackValue: number | null = null;
@@ -594,8 +724,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       ? feedbackValue.toFixed(1) 
                       : null;
 
-                    const hasDetailedFeedback = fullFeedback !== null;
-                    const showDetails = selectedSessionIndex === index && type === 'student';
+                    const showDetails = selectedSessionIndex === index;
+
+                    const displayStatus = (session.sessionStatus && String(session.sessionStatus).trim())
+                      ? session.sessionStatus
+                      : 'Upcoming';
 
                     return (
                       <React.Fragment key={index}>
@@ -628,9 +761,9 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           </td>
                           <td className="px-4 py-2">
                             <div className="flex items-center space-x-2">
-                              {getStatusIcon(session.sessionStatus)}
-                              <span className={`text-sm ${getStatusColor(session.sessionStatus)}`}>
-                                {session.sessionStatus}
+                              {getStatusIcon(displayStatus)}
+                              <span className={`text-sm ${getStatusColor(displayStatus)}`}>
+                                {displayStatus}
                               </span>
                             </div>
                           </td>
@@ -647,24 +780,26 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                               )}
                             </td>
                           )}
-                          <td className="px-4 py-2">
-                            {feedbackDisplay !== null ? (
-                              <div className="flex items-center space-x-1">
-                                <Star className="w-4 h-4 text-[#86EFAC]" />
-                                <span className="text-sm text-white">{feedbackDisplay}</span>
-                                <span className="text-xs text-gray-500 ml-2">(Click for details)</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-1">
-                                <span className="text-sm text-gray-400">N/A</span>
-                                <span className="text-xs text-gray-500 ml-2">(Click for details)</span>
-                              </div>
-                            )}
-                          </td>
+                          {type === 'student' && (
+                            <td className="px-4 py-2">
+                              {feedbackDisplay !== null ? (
+                                <div className="flex items-center space-x-1">
+                                  <Star className="w-4 h-4 text-[#86EFAC]" />
+                                  <span className="text-sm text-white">{feedbackDisplay}</span>
+                                  <span className="text-xs text-gray-500 ml-2">(Click for details)</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-1">
+                                  <span className="text-sm text-gray-400">N/A</span>
+                                  <span className="text-xs text-gray-500 ml-2">(Click for details)</span>
+                                </div>
+                              )}
+                            </td>
+                          )}
                         </tr>
                         {showDetails && (
                           <tr>
-                            <td colSpan={type === 'student' ? 6 : 5} className="px-4 py-4" style={{ backgroundColor: '#1A3636' }}>
+                            <td colSpan={type === 'student' ? 6 : 4} className="px-4 py-4" style={{ backgroundColor: '#1A3636' }}>
                               <div className="space-y-4">
                                 <div className="flex items-center justify-between mb-3">
                                   <h4 className="text-md font-semibold text-white">Session Details</h4>
@@ -698,8 +833,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                     <p className="text-sm text-white">{session.time}</p>
                                   </div>
                                   <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                    <p className="text-xs text-gray-400 mb-1">Mentor</p>
-                                    <p className="text-sm text-white">{session.mentorName}</p>
+                                    <p className="text-xs text-gray-400 mb-1">{type === 'mentor' ? 'Mentee' : 'Mentor'}</p>
+                                    <p className="text-sm text-white">
+                                      {type === 'mentor' ? session.studentName : session.mentorName}
+                                    </p>
+                                    {type === 'mentor' && session.studentEmail && (
+                                      <p className="text-xs text-gray-400 mt-1">{session.studentEmail}</p>
+                                    )}
                                   </div>
                                   <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
                                     <p className="text-xs text-gray-400 mb-1">Status</p>
@@ -734,87 +874,151 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                   )}
                                 </div>
 
-                                {/* Feedback Section (only if feedback exists) */}
-                                {fullFeedback && (
+                                {/* Feedback Section */}
+                                {type === 'student' && (
                                   <>
-                                    <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
-                                      <h5 className="text-sm font-semibold text-white mb-3">Feedback Details</h5>
-                                      
-                                      {/* Overall Rating from Column L */}
-                                      {((fullFeedback['Overall Rating'] || fullFeedback['overall rating'] || fullFeedback['Average'] || fullFeedback['average'])) && (
+                                    {fullFeedback ? (
+                                      <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
+                                        <h5 className="text-sm font-semibold text-white mb-3">Feedback Details</h5>
+                                        {/* Overall Rating from Column L */}
+                                        {((fullFeedback['Overall Rating'] || fullFeedback['overall rating'] || fullFeedback['Average'] || fullFeedback['average'])) && (
+                                          <div className="flex items-center space-x-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <Star className="w-5 h-5 text-[#22C55E]" />
+                                            <span className="text-lg font-bold text-white">
+                                              Overall Rating: {parseFloat(String(fullFeedback['Overall Rating'] || fullFeedback['overall rating'] || fullFeedback['Average'] || fullFeedback['average'])).toFixed(2)}
+                                            </span>
+                                          </div>
+                                        )}
+
+                                        {/* Case and Difficulty */}
+                                        {((fullFeedback['Case'] || fullFeedback['case']) || (fullFeedback['Difficulty'] || fullFeedback['difficulty'])) && (
+                                          <div className="grid grid-cols-2 gap-3 mb-3">
+                                            {(fullFeedback['Case'] || fullFeedback['case']) && (
+                                              <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                                <p className="text-xs text-gray-400 mb-1">Case</p>
+                                                <p className="text-sm text-white">{fullFeedback['Case'] || fullFeedback['case']}</p>
+                                              </div>
+                                            )}
+                                            {(fullFeedback['Difficulty'] || fullFeedback['difficulty']) && (
+                                              <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                                <p className="text-xs text-gray-400 mb-1">Difficulty</p>
+                                                <p className="text-sm text-white">{fullFeedback['Difficulty'] || fullFeedback['difficulty']}</p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        {/* Rating Parameters */}
+                                        <div className="space-y-2 mb-3">
+                                          <p className="text-sm font-semibold text-white mb-2">Rating Parameters:</p>
+                                          {[
+                                            { key: 'Rating on scoping questions', label: 'Scoping Questions' },
+                                            { key: 'Rating on case setup and structure', label: 'Case Setup & Structure' },
+                                            { key: 'Rating on quantitative ability (if not tested, rate 1)', label: 'Quantitative Ability' },
+                                            { key: 'Rating on communication and confidence', label: 'Communication & Confidence' },
+                                            { key: 'Rating on business acumen and creativity', label: 'Business Acumen & Creativity' },
+                                          ].map(({ key, label }) => {
+                                            const ratingValue = fullFeedback[key];
+                                            if (!ratingValue && ratingValue !== 0) return null;
+                                            const rating = parseFloat(String(ratingValue));
+                                            if (isNaN(rating)) return null;
+                                            
+                                            return (
+                                              <div key={key} className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                                <span className="text-sm text-gray-300">{label}</span>
+                                                <div className="flex items-center space-x-2">
+                                                  <Star className="w-4 h-4 text-[#86EFAC]" />
+                                                  <span className="text-sm font-medium text-white">{rating.toFixed(1)}</span>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+
+                                        {/* Comments */}
+                                        {(fullFeedback['Overall strength and areas of improvement'] || 
+                                          fullFeedback['Comments'] || 
+                                          fullFeedback['comments']) && (
+                                          <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <p className="text-sm font-semibold text-white mb-2">Overall Strength and Areas of Improvement:</p>
+                                            <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                                              {fullFeedback['Overall strength and areas of improvement'] || 
+                                              fullFeedback['Comments'] || 
+                                              fullFeedback['comments']}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
+                                        <div className="p-3 rounded-lg text-center" style={{ backgroundColor: '#2A4A4A' }}>
+                                          <p className="text-sm text-gray-400">No feedback available for this session</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+
+                                {type === 'mentor' && (
+                                  <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
+                                    <h5 className="text-sm font-semibold text-white mb-3">Mentee Feedback</h5>
+
+                                    {(() => {
+                                      const overall = getMentorOverallRatingFromFeedback(fullFeedback);
+                                      return overall !== null ? (
                                         <div className="flex items-center space-x-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
                                           <Star className="w-5 h-5 text-[#22C55E]" />
                                           <span className="text-lg font-bold text-white">
-                                            Overall Rating: {parseFloat(String(fullFeedback['Overall Rating'] || fullFeedback['overall rating'] || fullFeedback['Average'] || fullFeedback['average'])).toFixed(2)}
+                                            Overall Rating: {overall.toFixed(2)}
                                           </span>
                                         </div>
-                                      )}
+                                      ) : null;
+                                    })()}
 
-                                      {/* Case and Difficulty */}
-                                      {((fullFeedback['Case'] || fullFeedback['case']) || (fullFeedback['Difficulty'] || fullFeedback['difficulty'])) && (
-                                        <div className="grid grid-cols-2 gap-3 mb-3">
-                                          {(fullFeedback['Case'] || fullFeedback['case']) && (
-                                            <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                              <p className="text-xs text-gray-400 mb-1">Case</p>
-                                              <p className="text-sm text-white">{fullFeedback['Case'] || fullFeedback['case']}</p>
-                                            </div>
-                                          )}
-                                          {(fullFeedback['Difficulty'] || fullFeedback['difficulty']) && (
-                                            <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                              <p className="text-xs text-gray-400 mb-1">Difficulty</p>
-                                              <p className="text-sm text-white">{fullFeedback['Difficulty'] || fullFeedback['difficulty']}</p>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-
-                                      {/* Rating Parameters */}
-                                      <div className="space-y-2 mb-3">
-                                        <p className="text-sm font-semibold text-white mb-2">Rating Parameters:</p>
+                                    {fullFeedback ? (
+                                      <div className="space-y-3">
                                         {[
-                                          { key: 'Rating on scoping questions', label: 'Scoping Questions' },
-                                          { key: 'Rating on case setup and structure', label: 'Case Setup & Structure' },
-                                          { key: 'Rating on quantitative ability (if not tested, rate 1)', label: 'Quantitative Ability' },
-                                          { key: 'Rating on communication and confidence', label: 'Communication & Confidence' },
-                                          { key: 'Rating on business acumen and creativity', label: 'Business Acumen & Creativity' },
+                                          { key: 'Did the mentor join the session on time?', label: 'Joined on time' },
+                                          { key: 'How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)', label: 'Facilitation style' },
+                                          { key: 'How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)', label: 'Feedback quality' },
+                                          { key: 'How could it have been made better and any suggestions for the gradnext team or mentor', label: 'Suggestions' },
                                         ].map(({ key, label }) => {
-                                          const ratingValue = fullFeedback[key];
-                                          if (!ratingValue && ratingValue !== 0) return null;
-                                          const rating = parseFloat(String(ratingValue));
-                                          if (isNaN(rating)) return null;
-                                          
+                                          const val = fullFeedback[key];
+                                          if (!val || !String(val).trim()) return null;
                                           return (
-                                            <div key={key} className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                              <span className="text-sm text-gray-300">{label}</span>
-                                              <div className="flex items-center space-x-2">
-                                                <Star className="w-4 h-4 text-[#86EFAC]" />
-                                                <span className="text-sm font-medium text-white">{rating.toFixed(1)}</span>
-                                              </div>
+                                            <div key={key} className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                              <p className="text-xs text-gray-400 mb-1">{label}</p>
+                                              <p className="text-sm text-white whitespace-pre-wrap">{String(val).trim()}</p>
                                             </div>
                                           );
                                         })}
-                                      </div>
 
-                                      {/* Comments */}
-                                      {(fullFeedback['Overall strength and areas of improvement'] || 
-                                        fullFeedback['Comments'] || 
-                                        fullFeedback['comments']) && (
+                                        {/* Show the rest of the feedback fields */}
                                         <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                          <p className="text-sm font-semibold text-white mb-2">Overall Strength and Areas of Improvement:</p>
-                                          <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                                            {fullFeedback['Overall strength and areas of improvement'] || 
-                                             fullFeedback['Comments'] || 
-                                             fullFeedback['comments']}
-                                          </p>
+                                          <p className="text-xs text-gray-400 mb-2">All feedback fields</p>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {Object.entries(fullFeedback)
+                                              .filter(([k, v]) => {
+                                                if (!v || !String(v).trim()) return false;
+                                                const key = k.toLowerCase();
+                                                // Hide noisy metadata columns
+                                                if (key.includes('responder') || key.includes('edit link')) return false;
+                                                return true;
+                                              })
+                                              .map(([k, v]) => (
+                                                <div key={k} className="p-2 rounded-lg" style={{ backgroundColor: '#1A3636' }}>
+                                                  <p className="text-[11px] text-gray-400 mb-1">{k}</p>
+                                                  <p className="text-sm text-white whitespace-pre-wrap break-words">{String(v).trim()}</p>
+                                                </div>
+                                              ))}
+                                          </div>
                                         </div>
-                                      )}
-                                    </div>
-                                  </>
-                                )}
-                                
-                                {!fullFeedback && type === 'student' && (
-                                  <div className="p-3 rounded-lg text-center" style={{ backgroundColor: '#2A4A4A' }}>
-                                    <p className="text-sm text-gray-400">No feedback available for this session</p>
+                                      </div>
+                                    ) : (
+                                      <div className="p-3 rounded-lg text-center" style={{ backgroundColor: '#2A4A4A' }}>
+                                        <p className="text-sm text-gray-400">No feedback available for this session</p>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
