@@ -79,11 +79,11 @@ const MentorMultiSelect: React.FC<{
         onClick={() => setIsOpen(!isOpen)}
       >
         <span className="text-sm">
-          {selectedMentors.length === 0 
-            ? 'All Mentors' 
+          {selectedMentors.length === 0
+            ? 'All Mentors'
             : selectedMentors.length === 1
-            ? mentors.find(m => m.email === selectedMentors[0])?.name || '1 mentor'
-            : `${selectedMentors.length} mentors`}
+              ? mentors.find(m => m.email === selectedMentors[0])?.name || '1 mentor'
+              : `${selectedMentors.length} mentors`}
         </span>
         <span className="text-gray-400">▼</span>
       </div>
@@ -156,21 +156,21 @@ function getWeekInputValue(date: Date): string {
   // Use date-fns to get ISO week
   const weekStart = startOfWeek(date, { weekStartsOn: 1 }); // Monday
   const year = weekStart.getFullYear();
-  
+
   // Calculate ISO 8601 week number
   // ISO week: week 1 is the week containing Jan 4
   const jan4 = new Date(year, 0, 4);
   const jan4Day = jan4.getDay() || 7; // Convert Sunday (0) to 7
-  
+
   // Find the Monday of week 1 (same logic as getDateFromWeek)
   // Calculate days to go back to get to Monday
   const daysToMonday = (jan4Day === 1) ? 0 : (jan4Day - 1);
   const firstMonday = new Date(year, 0, 4 - daysToMonday);
-  
+
   // Calculate week number
   const diffInDays = Math.floor((weekStart.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24));
   const weekNum = Math.floor(diffInDays / 7) + 1;
-  
+
   // Handle edge case: if week is 0 or negative, it belongs to previous year
   if (weekNum < 1) {
     const prevYear = year - 1;
@@ -182,7 +182,7 @@ function getWeekInputValue(date: Date): string {
     const prevWeekNum = Math.floor(prevDiffInDays / 7) + 1;
     return `${prevYear}-W${prevWeekNum.toString().padStart(2, '0')}`;
   }
-  
+
   return `${year}-W${weekNum.toString().padStart(2, '0')}`;
 }
 
@@ -192,19 +192,19 @@ function getDateFromWeek(year: number, week: number): Date {
   // Calculate the first Thursday of the year (which is always in week 1)
   const jan4 = new Date(year, 0, 4);
   const jan4Day = jan4.getDay() || 7; // Convert Sunday (0) to 7
-  
+
   // Find the Monday of week 1
   // If Jan 4 is Monday (1), daysToMonday = 0
   // If Jan 4 is Tuesday (2), daysToMonday = 6 (go back 6 days)
   // etc.
   const daysToMonday = (8 - jan4Day) % 7;
   const firstMonday = new Date(year, 0, 4 - daysToMonday);
-  
+
   // Calculate the Monday of the requested week
   // Week 1 starts at firstMonday, week 2 starts 7 days later, etc.
   const weekStart = new Date(firstMonday);
   weekStart.setDate(firstMonday.getDate() + (week - 1) * 7);
-  
+
   // Set to start of day to avoid timezone issues
   weekStart.setHours(0, 0, 0, 0);
   return weekStart;
@@ -220,7 +220,7 @@ export default function MentorDashboard() {
   const [weekFilter, setWeekFilter] = useState<Date | undefined>(undefined);
   const [monthFilter, setMonthFilter] = useState<string>(''); // Format: YYYY-MM
   const [selectedMentorFilter, setSelectedMentorFilter] = useState<string[]>([]); // Multi-select: array of emails
-  
+
   // Check if user is a mentor (for filtering)
   const isMentorUser = accessLevel === 'mentor';
 
@@ -275,7 +275,7 @@ export default function MentorDashboard() {
   // Filter sessions based on week/month/mentor filters
   const filteredSessions = useMemo(() => {
     let filtered = sessions;
-    
+
     // If user is a mentor, filter to show only their sessions
     if (isMentorUser && loggedInEmail) {
       const normalizedLoggedInEmail = loggedInEmail.trim().toLowerCase();
@@ -284,7 +284,7 @@ export default function MentorDashboard() {
         return sessionEmail === normalizedLoggedInEmail;
       });
     }
-    
+
     // Apply week filter (takes precedence over month filter)
     if (weekFilter) {
       const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
@@ -318,7 +318,7 @@ export default function MentorDashboard() {
         });
       });
     }
-    
+
     // Apply mentor filter (only for admin users)
     if (!isMentorUser && selectedMentorFilter.length > 0) {
       const normalizedFilterEmails = selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
@@ -327,7 +327,7 @@ export default function MentorDashboard() {
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
-    
+
     return filtered;
   }, [sessions, weekFilter, monthFilter, selectedMentorFilter, isMentorUser, loggedInEmail]);
 
@@ -373,7 +373,7 @@ export default function MentorDashboard() {
         'dateTime',
         'DateTime'
       ];
-      
+
       // First, try exact field name matches
       for (const field of dateFields) {
         const value = fb[field];
@@ -388,7 +388,7 @@ export default function MentorDashboard() {
           }
         }
       }
-      
+
       // If no exact match, try to find any field that looks like a date
       // (contains 'date' or 'time' in the key name)
       for (const key in fb) {
@@ -404,7 +404,7 @@ export default function MentorDashboard() {
           }
         }
       }
-      
+
       return null;
     };
 
@@ -422,17 +422,17 @@ export default function MentorDashboard() {
       // Make end date inclusive by using end of day
       const weekEndInclusive = new Date(weekEnd);
       weekEndInclusive.setHours(23, 59, 59, 999);
-      
+
       // Build a map of mentors who have sessions in the filtered week
       // Map both email and name for matching
       const mentorsInFilteredWeek = new Set<string>();
       const mentorEmailToName = new Map<string, string>();
       const mentorNameToEmail = new Map<string, string>();
-      
+
       filteredSessions.forEach(s => {
         const email = (s.mentorEmail || '').trim().toLowerCase();
         const name = (s.mentorName || '').trim().toLowerCase();
-        
+
         if (email) {
           mentorsInFilteredWeek.add(email);
           if (name) {
@@ -444,17 +444,17 @@ export default function MentorDashboard() {
           mentorsInFilteredWeek.add(name);
         }
       });
-      
+
       const beforeCount = filtered.length;
       let matchedByDate = 0;
       let matchedByMentor = 0;
-      
+
       // Filter feedbacks: match by date first, then by mentor if date doesn't match
       // This ensures we get feedbacks for sessions in the filtered week
       filtered = filtered.filter((fb: any) => {
         const mentorInfo = getMentorInfo(fb);
         const sessionDateStr = getFeedbackDate(fb);
-        
+
         // First, try to match by date (most precise)
         if (sessionDateStr) {
           try {
@@ -463,7 +463,7 @@ export default function MentorDashboard() {
               const sessionTime = sessionDate.getTime();
               const weekStartTime = weekStart.getTime();
               const weekEndTime = weekEndInclusive.getTime();
-              
+
               // If date is in the week range, include it
               if (sessionTime >= weekStartTime && sessionTime <= weekEndTime) {
                 matchedByDate++;
@@ -474,25 +474,25 @@ export default function MentorDashboard() {
             // Date parsing failed, continue to mentor matching
           }
         }
-        
+
         // If date doesn't match or is not available, match by mentor
         // This handles cases where feedback date might differ from session date
-        const mentorMatches = 
+        const mentorMatches =
           (mentorInfo.email && mentorsInFilteredWeek.has(mentorInfo.email)) ||
           (mentorInfo.name && mentorsInFilteredWeek.has(mentorInfo.name)) ||
-          (mentorInfo.email && mentorEmailToName.has(mentorInfo.email) && 
-           mentorsInFilteredWeek.has(mentorEmailToName.get(mentorInfo.email)!)) ||
-          (mentorInfo.name && mentorNameToEmail.has(mentorInfo.name) && 
-           mentorsInFilteredWeek.has(mentorNameToEmail.get(mentorInfo.name)!));
-        
+          (mentorInfo.email && mentorEmailToName.has(mentorInfo.email) &&
+            mentorsInFilteredWeek.has(mentorEmailToName.get(mentorInfo.email)!)) ||
+          (mentorInfo.name && mentorNameToEmail.has(mentorInfo.name) &&
+            mentorsInFilteredWeek.has(mentorNameToEmail.get(mentorInfo.name)!));
+
         if (mentorMatches) {
           matchedByMentor++;
           return true;
         }
-        
+
         return false;
       });
-      
+
     }
     // Apply month filter (only if week filter is not set)
     else if (monthFilter) {
@@ -500,13 +500,13 @@ export default function MentorDashboard() {
       const monthStart = startOfMonth(monthDate);
       const monthEnd = endOfMonth(monthDate);
       const beforeCount = filtered.length;
-      
+
       filtered = filtered.filter((fb: any) => {
         const sessionDateStr = getFeedbackDate(fb);
         if (!sessionDateStr) {
           return false;
         }
-        
+
         try {
           const sessionDate = parseSessionDate(sessionDateStr);
           if (!sessionDate) {
@@ -521,20 +521,20 @@ export default function MentorDashboard() {
           return false;
         }
       });
-      
+
     }
 
     // Apply mentor filter
     // For mentor users, automatically filter by their email even if selectedMentorFilter is empty
-    const mentorEmailsToFilter = isMentorUser && loggedInEmail 
+    const mentorEmailsToFilter = isMentorUser && loggedInEmail
       ? [loggedInEmail.trim().toLowerCase()]
-      : selectedMentorFilter.length > 0 
+      : selectedMentorFilter.length > 0
         ? selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e)
         : [];
-    
+
     if (mentorEmailsToFilter.length > 0) {
       const normalizedFilterEmails = mentorEmailsToFilter;
-      
+
       // Build a comprehensive map of mentor names to emails from all sessions
       const mentorNameEmailMap = new Map<string, string[]>();
       sessions.forEach(s => {
@@ -555,23 +555,23 @@ export default function MentorDashboard() {
       const beforeCount = filtered.length;
       filtered = filtered.filter((fb: any) => {
         const mentorInfo = getMentorInfo(fb);
-        
+
         // Check if mentor email matches any selected mentor
         if (mentorInfo.email && normalizedFilterEmails.includes(mentorInfo.email)) {
           return true;
         }
-        
+
         // Check if mentor name matches (via name-to-email mapping)
         if (mentorInfo.name) {
           const mappedEmails = mentorNameEmailMap.get(mentorInfo.name) || [];
           return mappedEmails.some(email => normalizedFilterEmails.includes(email));
         }
-        
+
         return false;
       });
-      
+
     }
-    
+
     return filtered;
   }, [mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, sessions, filteredSessions, isMentorUser, loggedInEmail]);
 
@@ -676,11 +676,11 @@ export default function MentorDashboard() {
     if (!hasData) {
       return [];
     }
-    
+
     // For rating calculation, always pass mentorFeedbacks (even if empty) so function can handle it
     // Priority: filteredMentorFeedbacks (when filters applied) > mentorFeedbacks
     let feedbacksForRating: any[] = [];
-    
+
     // Always use mentorFeedbacks if it's an array (even if empty)
     if (Array.isArray(mentorFeedbacks)) {
       if (mentorFeedbacks.length > 0) {
@@ -699,10 +699,10 @@ export default function MentorDashboard() {
     } else {
       feedbacksForRating = [];
     }
-    
+
     // For other metrics (sessions done, cancelled, etc.), use filtered sessions
     const metrics = calculateMentorMetrics(filteredSessions, sessions, feedbacksForRating);
-    
+
     return metrics;
   }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, isMentorUser]);
 
@@ -777,16 +777,16 @@ export default function MentorDashboard() {
     // Get unique dates and weeks
     const uniqueDates = new Set<string>();
     const uniqueWeeks = new Set<string>();
-    
+
     filteredSessions.forEach(s => {
       if (!s.date) return;
       const sessionDate = parseSessionDate(s.date);
       if (!sessionDate) return;
-      
+
       // Add unique date (YYYY-MM-DD format)
       const dateKey = format(sessionDate, 'yyyy-MM-dd');
       uniqueDates.add(dateKey);
-      
+
       // Add unique week (Monday of the week)
       const weekStart = startOfWeek(sessionDate, { weekStartsOn: 1 });
       const weekKey = format(weekStart, 'yyyy-MM-dd');
@@ -822,7 +822,7 @@ export default function MentorDashboard() {
     // For mentors: use filteredMentorFeedbacks (their own feedbacks)
     // For admins: use all mentorFeedbacks
     const allRatings: number[] = [];
-    
+
     // Use filtered feedbacks if mentor user (even if empty array), otherwise use all feedbacks
     let feedbacksToUse: any[] = [];
     if (isMentorUser) {
@@ -833,7 +833,7 @@ export default function MentorDashboard() {
       // For admins, use all mentorFeedbacks
       feedbacksToUse = Array.isArray(mentorFeedbacks) ? mentorFeedbacks : [];
     }
-    
+
     // Collect all individual ratings from feedbacks
     if (Array.isArray(feedbacksToUse) && feedbacksToUse.length > 0) {
       const ratingColumnNames = [
@@ -844,10 +844,10 @@ export default function MentorDashboard() {
         'Rating',
         'rating'
       ];
-      
+
       feedbacksToUse.forEach((feedback) => {
         let ratingValue = null;
-        
+
         // Try to get by column header name first
         for (const colName of ratingColumnNames) {
           if (feedback[colName] !== undefined && feedback[colName] !== null && feedback[colName] !== '') {
@@ -855,12 +855,12 @@ export default function MentorDashboard() {
             break;
           }
         }
-        
+
         // Fallback to _col7
         if (ratingValue === null || ratingValue === undefined || ratingValue === '') {
           ratingValue = feedback['_col7'];
         }
-        
+
         if (ratingValue !== null && ratingValue !== undefined && ratingValue !== '') {
           const ratingStr = String(ratingValue).trim();
           if (ratingStr !== '' && ratingStr !== 'N/A' && ratingStr !== 'null' && ratingStr !== 'undefined') {
@@ -872,7 +872,7 @@ export default function MentorDashboard() {
         }
       });
     }
-    
+
     // Calculate average of all individual ratings
     const avgRating = allRatings.length > 0
       ? allRatings.reduce((sum, r) => sum + r, 0) / allRatings.length
@@ -943,7 +943,7 @@ export default function MentorDashboard() {
     // Sessions are already filtered by date, so just pass them directly
     // Always try to use mentorFeedbacks if available
     let feedbacksForRating: any[] | undefined = undefined;
-    
+
     // First, check if we have any mentorFeedbacks at all
     if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
       // For mentor users, always use filtered feedbacks (filtered by their email)
@@ -957,7 +957,7 @@ export default function MentorDashboard() {
       }
     }
     // If no mentorFeedbacks, leave as undefined to trigger fallback to session-based ratings
-    
+
     const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, feedbacksForRating);
     return stats;
   }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks, mentorFeedbacks, isMentorUser]);
@@ -968,7 +968,7 @@ export default function MentorDashboard() {
         <AlertCircle className="w-16 h-16 text-gray-400 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">No Data Available</h2>
         <p className="text-gray-300 mb-6 text-center max-w-md">
-          {sessions.length === 0 
+          {sessions.length === 0
             ? 'No valid session data found. Please ensure your Google Sheet has data with Date, Mentor Email, and Student Email fields filled in.'
             : 'Please upload your session data first'}
         </p>
@@ -1006,7 +1006,7 @@ export default function MentorDashboard() {
               {isMentorUser ? `Hello ${loggedInMentorName}` : 'Mentor Dashboard'}
             </h1>
             <p className="text-gray-300 mt-1">
-              {isMentorUser 
+              {isMentorUser
                 ? `Performance analytics`
                 : `Performance metrics for ${aggregateMetrics.totalMentors} mentors`
               }
@@ -1016,7 +1016,7 @@ export default function MentorDashboard() {
             onClick={handleRefresh}
             disabled={isRefreshing}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ 
+            style={{
               backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
               color: '#fff'
             }}
@@ -1170,204 +1170,147 @@ export default function MentorDashboard() {
         />
       </div>
 
-      {/* Mentor Parameter Ratings Table (Mentor only, anonymized) */}
-      {isMentorUser && (
-        <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-          <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
-            <h3 className="text-lg font-semibold text-white">My Feedback Parameter Ratings</h3>
-            <p className="text-xs text-gray-400 mt-1">Mentee names are hidden in this view</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Overall</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Joined on time</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Facilitation</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Feedback quality</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Suggestions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
-                {mentorFeedbackParameterRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
-                      No feedback entries available (or none match the current filters)
-                    </td>
-                  </tr>
-                ) : (
-                  mentorFeedbackParameterRows.map((r, idx) => (
-                    <tr
-                      key={`${r.dateStr}-${idx}`}
-                      className="transition-colors"
-                      style={{ borderColor: '#3A5A5A' }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1A3636')}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2A4A4A')}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
-                        {r.overall !== null ? r.overall.toFixed(2) : 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                        {r.onTime || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-300">
-                        {r.facilitation || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-300">
-                        {r.feedbackQuality || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-300">
-                        {r.suggestions ? (r.suggestions.length > 90 ? `${r.suggestions.slice(0, 90)}…` : r.suggestions) : 'N/A'}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+
 
       {/* Top Mentors by Rating - Horizontal Bar Chart Style (Admin only) */}
       {!isMentorUser && (
-      <div className="rounded-xl shadow-lg border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-        <div className="p-6 border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)' }}>
-              <Star className="w-6 h-6 text-white" fill="white" />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-white">Top 10 Mentors by Rating</h3>
-              <p className="text-xs text-gray-400 mt-1">Visual ranking based on average session ratings</p>
+        <div className="rounded-xl shadow-lg border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="p-6 border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg" style={{ background: 'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)' }}>
+                <Star className="w-6 h-6 text-white" fill="white" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Top 10 Mentors by Rating</h3>
+                <p className="text-xs text-gray-400 mt-1">Visual ranking based on average session ratings</p>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="p-6">
-          {topMentorsByRating.length === 0 ? (
-            <div className="text-center py-12">
-              <Star className="w-12 h-12 mx-auto mb-3 text-gray-500 opacity-50" />
-              <p className="text-gray-400">No mentors with ratings available</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {topMentorsByRating.map((mentor, index) => {
-                const isTopThree = index < 3;
-                const maxRating = topMentorsByRating[0]?.avgRating || 5;
-                const ratingPercentage = (mentor.avgRating / maxRating) * 100;
-                const barColors = ['#FFD700', '#C0C0C0', '#CD7F32', '#22C55E'];
-                const barColor = isTopThree ? barColors[index] : barColors[3];
-                
-                return (
-                  <div
-                    key={mentor.mentorEmail}
-                    className="group"
-                  >
-                    <div className="flex items-center gap-4">
-                      {/* Rank & Medal */}
-                      <div className="flex-shrink-0 w-16 flex flex-col items-center">
-                        {isTopThree ? (
-                          <div className="text-3xl mb-1">
-                            {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
-                          </div>
-                        ) : (
-                          <div 
-                            className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm mb-1"
-                            style={{ backgroundColor: '#3A5A5A', color: '#86EFAC' }}
-                          >
-                            {index + 1}
-                          </div>
-                        )}
-                        <div className="text-xs text-gray-400 font-medium">#{index + 1}</div>
-                      </div>
+          <div className="p-6">
+            {topMentorsByRating.length === 0 ? (
+              <div className="text-center py-12">
+                <Star className="w-12 h-12 mx-auto mb-3 text-gray-500 opacity-50" />
+                <p className="text-gray-400">No mentors with ratings available</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {topMentorsByRating.map((mentor, index) => {
+                  const isTopThree = index < 3;
+                  const maxRating = topMentorsByRating[0]?.avgRating || 5;
+                  const ratingPercentage = (mentor.avgRating / maxRating) * 100;
+                  const barColors = ['#FFD700', '#C0C0C0', '#CD7F32', '#22C55E'];
+                  const barColor = isTopThree ? barColors[index] : barColors[3];
 
-                      {/* Mentor Info */}
-                      <div className="flex-shrink-0 w-48">
-                        <h4 className="text-sm font-semibold text-white truncate">
-                          {mentor.mentorName}
-                        </h4>
-                        <p className="text-xs text-gray-400 truncate">
-                          {mentor.mentorEmail}
-                        </p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className="text-xs text-gray-500">{mentor.sessionsDone} sessions</span>
-                        </div>
-                      </div>
-
-                      {/* Progress Bar */}
-                      <div className="flex-1 relative">
-                        <div className="relative h-12 rounded-lg overflow-hidden" style={{ backgroundColor: '#1A3636' }}>
-                          {/* Background gradient */}
-                          <div 
-                            className="absolute inset-0 rounded-lg transition-all duration-500 group-hover:brightness-110"
-                            style={{
-                              width: `${ratingPercentage}%`,
-                              background: `linear-gradient(90deg, ${barColor} 0%, ${barColor}dd 100%)`,
-                              boxShadow: `0 0 20px ${barColor}40`
-                            }}
-                          />
-                          
-                          {/* Rating text overlay */}
-                          <div className="absolute inset-0 flex items-center justify-between px-4">
-                            <div className="flex items-center gap-2">
-                              <Star className="w-4 h-4" style={{ color: '#FFD700' }} fill="#FFD700" />
-                              <span className="text-lg font-bold text-white">
-                                {mentor.avgRating.toFixed(2)}
-                              </span>
+                  return (
+                    <div
+                      key={mentor.mentorEmail}
+                      className="group"
+                    >
+                      <div className="flex items-center gap-4">
+                        {/* Rank & Medal */}
+                        <div className="flex-shrink-0 w-16 flex flex-col items-center">
+                          {isTopThree ? (
+                            <div className="text-3xl mb-1">
+                              {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
                             </div>
-                            
-                            {/* Star rating visualization */}
-                            <div className="flex items-center gap-0.5">
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <Star
-                                  key={star}
-                                  className={`w-3 h-3 ${
-                                    star <= Math.round(mentor.avgRating)
-                                      ? 'text-yellow-400'
-                                      : 'text-gray-600'
-                                  }`}
-                                  fill={star <= Math.round(mentor.avgRating) ? '#FACC15' : 'none'}
-                                />
-                              ))}
+                          ) : (
+                            <div
+                              className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm mb-1"
+                              style={{ backgroundColor: '#3A5A5A', color: '#86EFAC' }}
+                            >
+                              {index + 1}
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-400 font-medium">#{index + 1}</div>
+                        </div>
+
+                        {/* Mentor Info */}
+                        <div className="flex-shrink-0 w-48">
+                          <h4 className="text-sm font-semibold text-white truncate">
+                            {mentor.mentorName}
+                          </h4>
+                          <p className="text-xs text-gray-400 truncate">
+                            {mentor.mentorEmail}
+                          </p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-xs text-gray-500">{mentor.sessionsDone} sessions</span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="flex-1 relative">
+                          <div className="relative h-12 rounded-lg overflow-hidden" style={{ backgroundColor: '#1A3636' }}>
+                            {/* Background gradient */}
+                            <div
+                              className="absolute inset-0 rounded-lg transition-all duration-500 group-hover:brightness-110"
+                              style={{
+                                width: `${ratingPercentage}%`,
+                                background: `linear-gradient(90deg, ${barColor} 0%, ${barColor}dd 100%)`,
+                                boxShadow: `0 0 20px ${barColor}40`
+                              }}
+                            />
+
+                            {/* Rating text overlay */}
+                            <div className="absolute inset-0 flex items-center justify-between px-4">
+                              <div className="flex items-center gap-2">
+                                <Star className="w-4 h-4" style={{ color: '#FFD700' }} fill="#FFD700" />
+                                <span className="text-lg font-bold text-white">
+                                  {mentor.avgRating.toFixed(2)}
+                                </span>
+                              </div>
+
+                              {/* Star rating visualization */}
+                              <div className="flex items-center gap-0.5">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <Star
+                                    key={star}
+                                    className={`w-3 h-3 ${star <= Math.round(mentor.avgRating)
+                                        ? 'text-yellow-400'
+                                        : 'text-gray-600'
+                                      }`}
+                                    fill={star <= Math.round(mentor.avgRating) ? '#FACC15' : 'none'}
+                                  />
+                                ))}
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* Charts (Admin only) */}
       {!isMentorUser && (
-      <div className="grid grid-cols-1 gap-6">
-        {/* Top Mentors Bar Chart */}
-        <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-          <h3 className="text-lg font-semibold text-white mb-4">
-            Top 10 Mentors by Sessions
-          </h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={topMentorsData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#3A5A5A" />
-              <XAxis dataKey="name" stroke="#86EFAC" tick={{ fill: '#86EFAC' }} />
-              <YAxis stroke="#86EFAC" tick={{ fill: '#86EFAC' }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#2A4A4A',
-                  border: '1px solid #3A5A5A',
-                  borderRadius: '8px',
-                  color: '#fff',
-                }}
-              />
-              <Legend />
-              <Bar dataKey="sessions" fill="#22C55E" radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <div className="grid grid-cols-1 gap-6">
+          {/* Top Mentors Bar Chart */}
+          <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+            <h3 className="text-lg font-semibold text-white mb-4">
+              Top 10 Mentors by Sessions
+            </h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={topMentorsData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#3A5A5A" />
+                <XAxis dataKey="name" stroke="#86EFAC" tick={{ fill: '#86EFAC' }} />
+                <YAxis stroke="#86EFAC" tick={{ fill: '#86EFAC' }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#2A4A4A',
+                    border: '1px solid #3A5A5A',
+                    borderRadius: '8px',
+                    color: '#fff',
+                  }}
+                />
+                <Legend />
+                <Bar dataKey="sessions" fill="#22C55E" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
@@ -1501,6 +1444,64 @@ export default function MentorDashboard() {
           </table>
         </div>
       </div>
+
+      {/* Mentor Parameter Ratings Table (Mentor only, anonymized) */}
+      {isMentorUser && (
+        <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
+            <h3 className="text-lg font-semibold text-white">My Feedback Parameter Ratings</h3>
+            <p className="text-xs text-gray-400 mt-1">Mentee names are hidden in this view</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Overall</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Joined on time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Facilitation</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Feedback quality</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Suggestions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                {mentorFeedbackParameterRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                      No feedback entries available (or none match the current filters)
+                    </td>
+                  </tr>
+                ) : (
+                  mentorFeedbackParameterRows.map((r, idx) => (
+                    <tr
+                      key={`${r.dateStr}-${idx}`}
+                      className="transition-colors"
+                      style={{ borderColor: '#3A5A5A' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1A3636')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2A4A4A')}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                        {r.overall !== null ? r.overall.toFixed(2) : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                        {r.onTime || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300">
+                        {r.facilitation || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300">
+                        {r.feedbackQuality || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-300">
+                        {r.suggestions ? (r.suggestions.length > 90 ? `${r.suggestions.slice(0, 90)}…` : r.suggestions) : 'N/A'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Detail Modal */}
       {selectedMentor && (

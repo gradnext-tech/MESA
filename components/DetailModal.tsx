@@ -30,7 +30,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   mentorFeedbacks = [],
 }) => {
   const [selectedSessionIndex, setSelectedSessionIndex] = React.useState<number | null>(null);
-  
+
   if (!isOpen) return null;
 
   // Filter out mentor-side disruptions for student dashboard
@@ -65,7 +65,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
   const lastSession = sortedSessions[0];
   const completedSessions = sortedSessions.filter(s => s.sessionStatus?.toLowerCase() === 'completed');
-  
+
   // Helper function to get full feedback object for a session (for students)
   const getFullSessionFeedback = React.useCallback((session: Session): any | null => {
     if (type === 'student' && candidateFeedbacks && candidateFeedbacks.length > 0) {
@@ -93,16 +93,16 @@ export const DetailModal: React.FC<DetailModalProps> = ({
         const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
 
         // Match by candidate name or email (flexible matching)
-        const candidateMatch = 
+        const candidateMatch =
           (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
           (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail) ||
           // Partial name matching (first name + last name)
-          (normalizedCandidateName && normalizedFeedbackCandidateName && 
-           normalizedCandidateName.split(/\s+/)[0] === normalizedFeedbackCandidateName.split(/\s+/)[0] &&
-           normalizedCandidateName.split(/\s+/).pop() === normalizedFeedbackCandidateName.split(/\s+/).pop());
+          (normalizedCandidateName && normalizedFeedbackCandidateName &&
+            normalizedCandidateName.split(/\s+/)[0] === normalizedFeedbackCandidateName.split(/\s+/)[0] &&
+            normalizedCandidateName.split(/\s+/).pop() === normalizedFeedbackCandidateName.split(/\s+/).pop());
 
         // Match by mentor name (flexible - partial match allowed)
-        const mentorMatch = 
+        const mentorMatch =
           normalizedMentorName && normalizedFeedbackMentorName && (
             normalizedFeedbackMentorName === normalizedMentorName ||
             normalizedFeedbackMentorName.includes(normalizedMentorName) ||
@@ -117,7 +117,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           const feedbackDateParsed = parseSessionDate(feedbackDate);
           if (feedbackDateParsed && sessionDateParsed) {
             // Compare dates (same day)
-            dateMatch = 
+            dateMatch =
               sessionDateParsed.getFullYear() === feedbackDateParsed.getFullYear() &&
               sessionDateParsed.getMonth() === feedbackDateParsed.getMonth() &&
               sessionDateParsed.getDate() === feedbackDateParsed.getDate();
@@ -130,12 +130,12 @@ export const DetailModal: React.FC<DetailModalProps> = ({
         // Also allow match if candidate matches and we can't parse dates (fallback)
         const hasCandidateMatch = candidateMatch;
         const hasDateOrMentorMatch = dateMatch || mentorMatch || (!sessionDateParsed && !feedbackDate);
-        
+
         // If candidate matches but no date/mentor match, still try if dates can't be parsed
         if (hasCandidateMatch && !hasDateOrMentorMatch && !sessionDateParsed && !feedbackDate) {
           return true; // Fallback: match by candidate only if dates can't be parsed
         }
-        
+
         return hasCandidateMatch && hasDateOrMentorMatch;
       });
 
@@ -150,13 +150,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     const fullFeedback = getFullSessionFeedback(session);
     if (fullFeedback) {
       // Try multiple column name variations - use "Overall Rating" from column L
-      let averageValue = fullFeedback['Overall Rating'] || 
-                        fullFeedback['overall rating'] || 
-                        fullFeedback['Overall rating'] ||
-                        fullFeedback['overallRating'] ||
-                        fullFeedback['Average'] || 
-                        fullFeedback['average'];
-      
+      let averageValue = fullFeedback['Overall Rating'] ||
+        fullFeedback['overall rating'] ||
+        fullFeedback['Overall rating'] ||
+        fullFeedback['overallRating'] ||
+        fullFeedback['Average'] ||
+        fullFeedback['average'];
+
       // If not found by name, try to find by column position (Column L = index 11)
       if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
         const allKeys = Object.keys(fullFeedback);
@@ -164,7 +164,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           averageValue = fullFeedback[allKeys[11]]; // Column L (0-indexed: 11)
         }
       }
-      
+
       if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
         const avgRating = parseFloat(String(averageValue));
         if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
@@ -552,7 +552,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   // Get feedback value - for students, try candidateFeedbacks if not in session
                   let feedbackValue: number | null = null;
                   let isValidRating = false;
-                  
+
                   if (type === 'mentor') {
                     const feedback = session.studentFeedback;
                     const value = typeof feedback === 'number' ? feedback : parseFloat(String(feedback));
@@ -563,15 +563,15 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   } else {
                     // For students, check session first, then candidateFeedbacks
                     if (session.mentorFeedback) {
-                      const value = typeof session.mentorFeedback === 'number' 
-                        ? session.mentorFeedback 
+                      const value = typeof session.mentorFeedback === 'number'
+                        ? session.mentorFeedback
                         : parseFloat(String(session.mentorFeedback));
                       if (!isNaN(value) && value > 0 && value <= 5) {
                         feedbackValue = value;
                         isValidRating = true;
                       }
                     }
-                    
+
                     if (!isValidRating) {
                       const matchedFeedback = getSessionFeedbackFromSheet(session);
                       if (matchedFeedback !== null) {
@@ -582,8 +582,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   }
 
                   // Format feedback value as string to avoid type issues
-                  const feedbackDisplay = (isValidRating && feedbackValue !== null) 
-                    ? feedbackValue.toFixed(1) 
+                  const feedbackDisplay = (isValidRating && feedbackValue !== null)
+                    ? feedbackValue.toFixed(1)
                     : null;
 
                   return (
@@ -649,7 +649,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedSessions.map((session, index) => {
+                  {[...sortedSessions].reverse().map((session, index) => {
                     // For students/mentors, get full feedback object first (this has all the data)
                     const fullFeedback =
                       type === 'student'
@@ -657,7 +657,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         : type === 'mentor'
                           ? getFullMentorSessionFeedback(session)
                           : null;
-                    
+
                     // Get feedback value for display - prioritize fullFeedback average
                     let feedbackValue: number | null = null;
                     let isValidRating = false;
@@ -666,13 +666,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       // First, try to get average from fullFeedback (Candidate Feedback sheet)
                       if (fullFeedback) {
                         // Try multiple column name variations - use "Overall Rating" from column L
-                        let averageValue = fullFeedback['Overall Rating'] || 
-                                          fullFeedback['overall rating'] || 
-                                          fullFeedback['Overall rating'] ||
-                                          fullFeedback['overallRating'] ||
-                                          fullFeedback['Average'] || 
-                                          fullFeedback['average'];
-                        
+                        let averageValue = fullFeedback['Overall Rating'] ||
+                          fullFeedback['overall rating'] ||
+                          fullFeedback['Overall rating'] ||
+                          fullFeedback['overallRating'] ||
+                          fullFeedback['Average'] ||
+                          fullFeedback['average'];
+
                         // If not found by name, try to find by column position (Column L = index 11)
                         if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
                           const allKeys = Object.keys(fullFeedback);
@@ -680,7 +680,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                             averageValue = fullFeedback[allKeys[11]]; // Column L (0-indexed: 11)
                           }
                         }
-                        
+
                         if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
                           const avgRating = parseFloat(String(averageValue));
                           if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
@@ -689,18 +689,18 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           }
                         }
                       }
-                      
+
                       // If not found in fullFeedback, try session.mentorFeedback
                       if (!isValidRating && session.mentorFeedback) {
-                        const value = typeof session.mentorFeedback === 'number' 
-                          ? session.mentorFeedback 
+                        const value = typeof session.mentorFeedback === 'number'
+                          ? session.mentorFeedback
                           : parseFloat(String(session.mentorFeedback));
                         if (!isNaN(value) && value > 0) {
                           feedbackValue = value;
                           isValidRating = true;
                         }
                       }
-                      
+
                       // Last resort: try getSessionFeedbackFromSheet
                       if (!isValidRating) {
                         const matchedFeedback = getSessionFeedbackFromSheet(session);
@@ -720,15 +720,16 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     }
 
                     // Format feedback value as string to avoid type issues
-                    const feedbackDisplay = (isValidRating && feedbackValue !== null) 
-                      ? feedbackValue.toFixed(1) 
+                    const feedbackDisplay = (isValidRating && feedbackValue !== null)
+                      ? feedbackValue.toFixed(1)
                       : null;
 
                     const showDetails = selectedSessionIndex === index;
 
-                    const displayStatus = (session.sessionStatus && String(session.sessionStatus).trim())
+                    const rawStatus = (session.sessionStatus && String(session.sessionStatus).trim())
                       ? session.sessionStatus
                       : 'Upcoming';
+                    const displayStatus = rawStatus.toLowerCase() === 'unknown' ? 'Upcoming' : rawStatus;
 
                     return (
                       <React.Fragment key={index}>
@@ -770,8 +771,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           {type === 'student' && (
                             <td className="px-4 py-2">
                               {session.sessionType ? (
-                                <span className="px-2 py-1 text-xs rounded-full text-white" style={{ 
-                                  backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E' 
+                                <span className="px-2 py-1 text-xs rounded-full text-white" style={{
+                                  backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E'
                                 }}>
                                   {session.sessionType}
                                 </span>
@@ -813,7 +814,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                     <X className="w-4 h-4" />
                                   </button>
                                 </div>
-                                
+
                                 {/* Session Information */}
                                 <div className="grid grid-cols-2 gap-3 mb-3">
                                   <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
@@ -853,8 +854,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                   {type === 'student' && session.sessionType && (
                                     <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
                                       <p className="text-xs text-gray-400 mb-1">Session Type</p>
-                                      <span className="px-2 py-1 text-xs rounded-full text-white" style={{ 
-                                        backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E' 
+                                      <span className="px-2 py-1 text-xs rounded-full text-white" style={{
+                                        backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E'
                                       }}>
                                         {session.sessionType}
                                       </span>
@@ -922,7 +923,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                             if (!ratingValue && ratingValue !== 0) return null;
                                             const rating = parseFloat(String(ratingValue));
                                             if (isNaN(rating)) return null;
-                                            
+
                                             return (
                                               <div key={key} className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
                                                 <span className="text-sm text-gray-300">{label}</span>
@@ -936,18 +937,18 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                         </div>
 
                                         {/* Comments */}
-                                        {(fullFeedback['Overall strength and areas of improvement'] || 
-                                          fullFeedback['Comments'] || 
+                                        {(fullFeedback['Overall strength and areas of improvement'] ||
+                                          fullFeedback['Comments'] ||
                                           fullFeedback['comments']) && (
-                                          <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                            <p className="text-sm font-semibold text-white mb-2">Overall Strength and Areas of Improvement:</p>
-                                            <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                                              {fullFeedback['Overall strength and areas of improvement'] || 
-                                              fullFeedback['Comments'] || 
-                                              fullFeedback['comments']}
-                                            </p>
-                                          </div>
-                                        )}
+                                            <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                              <p className="text-sm font-semibold text-white mb-2">Overall Strength and Areas of Improvement:</p>
+                                              <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                                                {fullFeedback['Overall strength and areas of improvement'] ||
+                                                  fullFeedback['Comments'] ||
+                                                  fullFeedback['comments']}
+                                              </p>
+                                            </div>
+                                          )}
                                       </div>
                                     ) : (
                                       <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>

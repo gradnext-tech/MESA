@@ -262,7 +262,7 @@ export default function WeekwiseSessions() {
       // If it's a specific status, return it as-is (capitalized)
       return feedbackStatus.charAt(0).toUpperCase() + feedbackStatus.slice(1).toLowerCase();
     }
-    
+
     // Fallback: Check studentFeedback if column N is not available
     if (!session.studentFeedback || session.studentFeedback === '' || session.studentFeedback === 'N/A') {
       return 'Not Filled';
@@ -296,7 +296,7 @@ export default function WeekwiseSessions() {
     filteredSessions.forEach(session => {
       const mentorEmail = (session.mentorEmail || '').trim().toLowerCase();
       const mentorName = session.mentorName || 'Unknown';
-      
+
       if (!mentorEmail) return;
 
       // Check if feedback is pending
@@ -363,7 +363,7 @@ export default function WeekwiseSessions() {
           onClick={handleRefresh}
           disabled={isRefreshing}
           className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ 
+          style={{
             backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
             color: '#fff'
           }}
@@ -385,8 +385,8 @@ export default function WeekwiseSessions() {
 
       {/* Weekwise Statistics Table */}
       <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-        <div 
-          className="p-6 border-b cursor-pointer" 
+        <div
+          className="p-6 border-b cursor-pointer"
           style={{ borderColor: '#3A5A5A' }}
           onClick={() => setIsWeekwiseExpanded(!isWeekwiseExpanded)}
         >
@@ -417,174 +417,174 @@ export default function WeekwiseSessions() {
         </div>
 
         {isWeekwiseExpanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Week Start (Monday)
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Week Range
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Total Scheduled
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Completed
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Pending
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Student No Show
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Student Cancelled
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Student Rescheduled
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentor No Show
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentor Cancelled
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentor Rescheduled
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Admin Cancelled
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Admin Rescheduled
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
-              {weekwiseStats.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
                 <tr>
-                  <td colSpan={13} className="px-6 py-8 text-center text-gray-400">
-                    No session data available
-                  </td>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Week Start (Monday)
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Week Range
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Total Scheduled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Completed
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Pending
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Student No Show
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Student Cancelled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Student Rescheduled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor No Show
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor Cancelled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor Rescheduled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Admin Cancelled
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Admin Rescheduled
+                  </th>
                 </tr>
-              ) : (
-                weekwiseStats.map((stat, index) => {
-                  const isSelected = selectedWeek && 
-                    stat.weekStart.getTime() === startOfWeek(selectedWeek, { weekStartsOn: 1 }).getTime();
-                  return (
-                  <tr
-                    key={stat.weekStart.toISOString()}
-                    className="transition-colors cursor-pointer"
-                    style={{ 
-                      borderColor: '#3A5A5A',
-                      backgroundColor: isSelected ? '#1A3636' : '#2A4A4A'
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation(); // Prevent triggering the header collapse
-                      // Toggle selection - if same week clicked, deselect
-                      if (isSelected) {
-                        setSelectedWeek(null);
-                      } else {
-                        setSelectedWeek(stat.weekStart);
-                      }
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = '#1A3636';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = '#2A4A4A';
-                      }
-                    }}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-white">
-                          {format(stat.weekStart, 'MMM d, yyyy')}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {format(stat.weekStart, 'EEEE')}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-300">
-                        {stat.weekLabel}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-semibold text-white">
-                        {stat.totalScheduled}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full" style={{ backgroundColor: '#22C55E', color: '#fff' }}>
-                        {stat.totalDone}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-300">
-                        {stat.pending}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-purple-300">
-                        {stat.studentNoShow}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-purple-300">
-                        {stat.studentCancelled}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-purple-300">
-                        {stat.studentRescheduled}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-red-300">
-                        {stat.mentorNoShow}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-red-300">
-                        {stat.mentorCancelled}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-red-300">
-                        {stat.mentorRescheduled}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-amber-300">
-                        {stat.adminCancelled}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-amber-300">
-                        {stat.adminRescheduled}
-                      </span>
+              </thead>
+              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                {weekwiseStats.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} className="px-6 py-8 text-center text-gray-400">
+                      No session data available
                     </td>
                   </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  weekwiseStats.map((stat, index) => {
+                    const isSelected = selectedWeek &&
+                      stat.weekStart.getTime() === startOfWeek(selectedWeek, { weekStartsOn: 1 }).getTime();
+                    return (
+                      <tr
+                        key={stat.weekStart.toISOString()}
+                        className="transition-colors cursor-pointer"
+                        style={{
+                          borderColor: '#3A5A5A',
+                          backgroundColor: isSelected ? '#1A3636' : '#2A4A4A'
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent triggering the header collapse
+                          // Toggle selection - if same week clicked, deselect
+                          if (isSelected) {
+                            setSelectedWeek(null);
+                          } else {
+                            setSelectedWeek(stat.weekStart);
+                          }
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.backgroundColor = '#1A3636';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.backgroundColor = '#2A4A4A';
+                          }
+                        }}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-white">
+                              {format(stat.weekStart, 'MMM d, yyyy')}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {format(stat.weekStart, 'EEEE')}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-gray-300">
+                            {stat.weekLabel}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm font-semibold text-white">
+                            {stat.totalScheduled}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full" style={{ backgroundColor: '#22C55E', color: '#fff' }}>
+                            {stat.totalDone}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-gray-300">
+                            {stat.pending}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-purple-300">
+                            {stat.studentNoShow}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-purple-300">
+                            {stat.studentCancelled}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-purple-300">
+                            {stat.studentRescheduled}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-red-300">
+                            {stat.mentorNoShow}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-red-300">
+                            {stat.mentorCancelled}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-red-300">
+                            {stat.mentorRescheduled}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-amber-300">
+                            {stat.adminCancelled}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-amber-300">
+                            {stat.adminRescheduled}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {/* Session-wise Data Table */}
       <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-        <div 
-          className="p-6 border-b cursor-pointer" 
+        <div
+          className="p-6 border-b cursor-pointer"
           style={{ borderColor: '#3A5A5A' }}
           onClick={() => setIsSessionDetailsExpanded(!isSessionDetailsExpanded)}
         >
@@ -596,7 +596,7 @@ export default function WeekwiseSessions() {
               <div>
                 <h3 className="text-xl font-bold text-white">Session Details</h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  {selectedWeek 
+                  {selectedWeek
                     ? `Sessions for week: ${format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'MMM d')} - ${format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), 'MMM d, yyyy')}`
                     : 'All sessions (click on a week above to filter)'}
                 </p>
@@ -631,132 +631,135 @@ export default function WeekwiseSessions() {
         </div>
 
         {isSessionDetailsExpanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentor Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Student Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Session Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Session Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentor Feedback Status
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
-              {filteredSessions.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
-                    {selectedWeek ? 'No sessions found for the selected week' : 'No session data available'}
-                  </td>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Student Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Session Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Session Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Mentor Feedback Status
+                  </th>
                 </tr>
-              ) : (
-                filteredSessions
-                  .sort((a, b) => {
-                    // Sort by date (most recent first)
-                    const dateA = parseSessionDate(a.date);
-                    const dateB = parseSessionDate(b.date);
-                    if (!dateA || !dateB) return 0;
-                    return dateB.getTime() - dateA.getTime();
-                  })
-                  .map((session, index) => {
-                    const status = normalizeSessionStatus(session.sessionStatus);
-                    const feedbackStatus = getMentorFeedbackStatus(session);
-                    const sessionDate = parseSessionDate(session.date);
-                    
-                    // Get status display color - using dull/muted colors for less contrast
-                    let statusColor = '#6B7280'; // Default muted gray
-                    if (status === 'completed') {
-                      statusColor = '#4ADE80'; // Muted green
-                    } else if (status.includes('cancelled')) {
-                      statusColor = '#F87171'; // Muted red
-                    } else if (status.includes('rescheduled')) {
-                      statusColor = '#FBBF24'; // Muted yellow/amber
-                    } else if (status.includes('no_show')) {
-                      statusColor = '#FB923C'; // Muted orange
-                    } else if (status === 'pending') {
-                      statusColor = '#9CA3AF'; // Muted gray
-                    }
+              </thead>
+              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                {filteredSessions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                      {selectedWeek ? 'No sessions found for the selected week' : 'No session data available'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredSessions
+                    .sort((a, b) => {
+                      // Sort by date (most recent first)
+                      const dateA = parseSessionDate(a.date);
+                      const dateB = parseSessionDate(b.date);
+                      if (!dateA || !dateB) return 0;
+                      return dateA.getTime() - dateB.getTime();
+                    })
+                    .map((session, index) => {
+                      const status = normalizeSessionStatus(session.sessionStatus);
+                      const feedbackStatus = getMentorFeedbackStatus(session);
+                      const sessionDate = parseSessionDate(session.date);
 
-                    return (
-                      <tr
-                        key={`${session.mentorEmail}-${session.studentEmail}-${session.date}-${index}`}
-                        className="transition-colors"
-                        style={{ borderColor: '#3A5A5A' }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
-                      >
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium text-white">
-                              {session.mentorName || 'N/A'}
+                      // Get status display color - using dull/muted colors for less contrast
+                      let statusColor = '#6B7280'; // Default muted gray
+                      if (status === 'completed') {
+                        statusColor = '#4ADE80'; // Muted green
+                      } else if (status.includes('cancelled')) {
+                        statusColor = '#F87171'; // Muted red
+                      } else if (status.includes('rescheduled')) {
+                        statusColor = '#FBBF24'; // Muted yellow/amber
+                      } else if (status.includes('no_show')) {
+                        statusColor = '#FB923C'; // Muted orange
+                      } else if (status === 'pending') {
+                        statusColor = '#9CA3AF'; // Muted gray
+                      }
+
+                      const displayStatus = (!session.sessionStatus || session.sessionStatus.toLowerCase() === 'unknown')
+                        ? 'Upcoming'
+                        : session.sessionStatus;
+
+                      return (
+                        <tr
+                          key={`${session.mentorEmail}-${session.studentEmail}-${session.date}-${index}`}
+                          className="transition-colors"
+                          style={{ borderColor: '#3A5A5A' }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-white">
+                                {session.mentorName || 'N/A'}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {session.mentorEmail || 'N/A'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-white">
+                                {session.studentName || 'N/A'}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {session.studentEmail || 'N/A'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="text-sm text-gray-300">
+                              {sessionDate ? format(sessionDate, 'MMM d, yyyy') : session.date || 'N/A'}
                             </span>
-                            <span className="text-xs text-gray-400">
-                              {session.mentorEmail || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full text-white"
+                              style={{ backgroundColor: statusColor }}
+                            >
+                              {displayStatus}
                             </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium text-white">
-                              {session.studentName || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${feedbackStatus === 'Filled'
+                                  ? 'text-white'
+                                  : 'text-gray-300'
+                                }`}
+                              style={{
+                                backgroundColor: feedbackStatus === 'Filled' ? '#22C55E' : '#6B7280'
+                              }}
+                            >
+                              {feedbackStatus}
                             </span>
-                            <span className="text-xs text-gray-400">
-                              {session.studentEmail || 'N/A'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-gray-300">
-                            {sessionDate ? format(sessionDate, 'MMM d, yyyy') : session.date || 'N/A'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span 
-                            className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full text-white"
-                            style={{ backgroundColor: statusColor }}
-                          >
-                            {session.sessionStatus || 'Unknown'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span 
-                            className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              feedbackStatus === 'Filled' 
-                                ? 'text-white' 
-                                : 'text-gray-300'
-                            }`}
-                            style={{ 
-                              backgroundColor: feedbackStatus === 'Filled' ? '#22C55E' : '#6B7280'
-                            }}
-                          >
-                            {feedbackStatus}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
-              )}
-            </tbody>
-          </table>
-        </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {/* Pending Feedback Table - Mentor-wise */}
       {mentorPendingFeedback.length > 0 && (
         <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
-          <div 
-            className="p-6 border-b cursor-pointer" 
+          <div
+            className="p-6 border-b cursor-pointer"
             style={{ borderColor: '#3A5A5A' }}
             onClick={() => setIsPendingFeedbackExpanded(!isPendingFeedbackExpanded)}
           >
@@ -789,77 +792,77 @@ export default function WeekwiseSessions() {
           </div>
 
           {isPendingFeedbackExpanded && (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Mentor Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Mentor Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Pending Count
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Sessions with Pending Feedback
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
-                {mentorPendingFeedback.map((mentor, index) => (
-                  <tr
-                    key={`${mentor.mentorEmail}-${index}`}
-                    className="transition-colors"
-                    style={{ borderColor: '#3A5A5A' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-white">
-                        {mentor.mentorName}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-300">
-                        {mentor.mentorEmail}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full text-white" style={{ backgroundColor: '#F59E0B' }}>
-                        {mentor.pendingSessions.length}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="space-y-2">
-                        {mentor.pendingSessions.map((session, sessionIndex) => {
-                          const sessionDate = parseSessionDate(session.date);
-                          return (
-                            <div
-                              key={`${session.date}-${session.studentEmail}-${sessionIndex}`}
-                              className="flex items-center gap-3 text-sm"
-                            >
-                              <span className="text-gray-300">
-                                {sessionDate ? format(sessionDate, 'MMM d, yyyy') : session.date}
-                              </span>
-                              <span className="text-gray-400">•</span>
-                              <span className="text-white font-medium">
-                                {session.studentName}
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                ({session.studentEmail})
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Mentor Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Mentor Email
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Pending Count
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Sessions with Pending Feedback
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                  {mentorPendingFeedback.map((mentor, index) => (
+                    <tr
+                      key={`${mentor.mentorEmail}-${index}`}
+                      className="transition-colors"
+                      style={{ borderColor: '#3A5A5A' }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-medium text-white">
+                          {mentor.mentorName}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-gray-300">
+                          {mentor.mentorEmail}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full text-white" style={{ backgroundColor: '#F59E0B' }}>
+                          {mentor.pendingSessions.length}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-2">
+                          {mentor.pendingSessions.map((session, sessionIndex) => {
+                            const sessionDate = parseSessionDate(session.date);
+                            return (
+                              <div
+                                key={`${session.date}-${session.studentEmail}-${sessionIndex}`}
+                                className="flex items-center gap-3 text-sm"
+                              >
+                                <span className="text-gray-300">
+                                  {sessionDate ? format(sessionDate, 'MMM d, yyyy') : session.date}
+                                </span>
+                                <span className="text-gray-400">•</span>
+                                <span className="text-white font-medium">
+                                  {session.studentName}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  ({session.studentEmail})
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
