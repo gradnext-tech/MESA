@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { google } from 'googleapis';
 
+function columnIndexToA1(columnIndex: number): string {
+  // 0 -> A, 25 -> Z, 26 -> AA, ...
+  let n = columnIndex + 1;
+  let result = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    n = Math.floor((n - 1) / 26);
+  }
+  return result;
+}
+
 // Helper function to get Google Sheets client
 function getGoogleSheetsClient() {
   const credentialsString = process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
@@ -193,8 +205,8 @@ export async function POST(request: NextRequest) {
       ? `'${exactSheetName.replace(/'/g, "''")}'`
       : exactSheetName;
 
-    // Convert column index to letter (A, B, C, etc.)
-    const columnLetter = String.fromCharCode(65 + mentorInfo.passwordHashColumnIndex);
+    // Convert column index to A1 column letters (A, B, ..., Z, AA, AB, ...)
+    const columnLetter = columnIndexToA1(mentorInfo.passwordHashColumnIndex);
 
     // If this is a new column, first update the header
     if (mentorInfo.passwordHashColumnIndex >= 0) {

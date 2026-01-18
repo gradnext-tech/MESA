@@ -236,6 +236,19 @@ export async function fetchMentorCredentials(feedbacksSpreadsheetId: string) {
 }
 
 /**
+ * Fetch student credentials from Mentee Directory sheet
+ * @param feedbacksSpreadsheetId - Spreadsheet ID for feedbacks (contains "Mentee Directory" sheet)
+ */
+export async function fetchStudentCredentials(feedbacksSpreadsheetId: string) {
+  try {
+    const students = await fetchSheetData(feedbacksSpreadsheetId, 'Mentee Directory');
+    return students;
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
  * Validate Google Sheets connection
  */
 export async function validateSheetsAccess(spreadsheetId: string): Promise<boolean> {

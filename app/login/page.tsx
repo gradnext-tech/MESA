@@ -159,6 +159,16 @@ export default function LoginPage() {
                 Set up your account
               </a>
             </p>
+            <p className="text-sm text-gray-400 mt-2">
+              Student without a password?{' '}
+              <a
+                href="set-student-password"
+                className="font-medium hover:underline transition-colors"
+                style={{ color: '#22C55E' }}
+              >
+                Set up your account
+              </a>
+            </p>
           </div>
         </div>
       </div>

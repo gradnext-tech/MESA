@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
+import { useAuth } from '@/context/AuthContext';
 import { calculateStudentMetrics, getDetailedCandidateAnalytics, parseSessionDate, normalizeSessionStatus } from '@/utils/metricsCalculator';
 import { getApiUrl } from '@/utils/api';
 import { MetricCard } from '@/components/MetricCard';
@@ -194,6 +195,7 @@ function getDateFromWeek(year: number, week: number): Date {
 
 export default function StudentDashboard() {
   const { sessions, hasData, students, setSessions, setStudents, setCandidateFeedbacks } = useData();
+  const { accessLevel, email: loggedInEmail } = useAuth();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [weekFilter, setWeekFilter] = useState<Date | undefined>(undefined);
   const [monthFilter, setMonthFilter] = useState<string>(''); // Format: YYYY-MM
@@ -203,6 +205,17 @@ export default function StudentDashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const { candidateFeedbacks, setMentorFeedbacks } = useData();
+
+  const isPersonalStudent = accessLevel === 'student';
+
+  // If logged in as a personal student, lock the filter to their email so they only see their own data
+  React.useEffect(() => {
+    if (!isPersonalStudent) return;
+    const email = (loggedInEmail || '').trim().toLowerCase();
+    if (!email) return;
+    if (selectedStudentFilter.length === 1 && (selectedStudentFilter[0] || '').trim().toLowerCase() === email) return;
+    setSelectedStudentFilter([email]);
+  }, [isPersonalStudent, loggedInEmail, selectedStudentFilter]);
 
   // Auto-fetch data if not available (when navigating directly to this page)
   React.useEffect(() => {
@@ -661,6 +674,25 @@ export default function StudentDashboard() {
     return sessions.filter(s => (s.studentEmail || '').trim().toLowerCase() === (selectedStudent.email || '').trim().toLowerCase());
   }, [selectedStudent, sessions]);
 
+  const loggedInStudentName = useMemo(() => {
+    if (!isPersonalStudent) return null;
+    const email = (loggedInEmail || '').trim().toLowerCase();
+    const fromSession = sessions.find(s => (s.studentEmail || '').trim().toLowerCase() === email);
+    const name = (fromSession?.studentName || '').trim();
+    if (name) return name;
+    if (email) return email.split('@')[0];
+    return 'Student';
+  }, [isPersonalStudent, loggedInEmail, sessions]);
+
+  const personalCandidateAnalytics = useMemo(() => {
+    if (!isPersonalStudent) return null;
+    const email = (loggedInEmail || '').trim().toLowerCase();
+    if (!email) return null;
+    // candidateAnalytics should already be filtered by selectedStudentFilter, but this is extra safety.
+    const exact = candidateAnalytics.find(c => (c.email || '').trim().toLowerCase() === email);
+    return exact || candidateAnalytics[0] || null;
+  }, [isPersonalStudent, loggedInEmail, candidateAnalytics]);
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -851,6 +883,177 @@ export default function StudentDashboard() {
             Go to Home
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  // Personal student view (logged-in student account)
+  if (isPersonalStudent) {
+    const disruptions =
+      (studentMetrics.totalSessionsCancelled || 0) +
+      (studentMetrics.totalSessionsRescheduled || 0) +
+      (studentMetrics.totalNoShows || 0);
+
+    return (
+      <div className="space-y-8">
+        {/* Header */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold text-white">Hello {loggedInStudentName}</h1>
+          <p className="text-gray-300">Performance analytics</p>
+        </div>
+
+        {/* Key Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <MetricCard
+            title="Total Sessions Done"
+            value={studentMetrics.totalSessionsDone}
+            icon={CheckCircle}
+            iconColor="text-[#22C55E]"
+            subtitle="Completed sessions"
+          />
+          <MetricCard
+            title="Disruptions"
+            value={disruptions}
+            icon={XCircle}
+            iconColor="text-red-500"
+            subtitle="Cancelled / rescheduled / no-show"
+          />
+          <MetricCard
+            title="Avg. Rating"
+            value={studentMetrics.avgFeedbackScore > 0 ? studentMetrics.avgFeedbackScore.toFixed(2) : 'N/A'}
+            icon={Star}
+            iconColor="text-[#22C55E]"
+            subtitle="Across your sessions"
+          />
+        </div>
+
+        {/* Weekwise Sessions Booked */}
+        <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">Weekwise Sessions Booked</h3>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
+                color: '#fff',
+              }}
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+            </button>
+          </div>
+
+          {weekwiseSessionData.length === 0 ? (
+            <div className="flex items-center justify-center h-[260px]">
+              <p className="text-gray-400">No session data available</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={weekwiseSessionData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#3A5A5A" />
+                <XAxis dataKey="week" stroke="#86EFAC" tick={{ fill: '#86EFAC', fontSize: 12 }} />
+                <YAxis stroke="#86EFAC" tick={{ fill: '#86EFAC' }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#2A4A4A',
+                    border: '1px solid #3A5A5A',
+                    borderRadius: '8px',
+                    color: '#fff',
+                  }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="sessions" stroke="#22C55E" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Individual Student Analytics */}
+        <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+          <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Individual Student Analytics</h3>
+                <p className="text-xs text-gray-400 mt-1">Your stats summary</p>
+              </div>
+              {personalCandidateAnalytics && (
+                <button
+                  onClick={() => {
+                    setSelectedStudent(personalCandidateAnalytics);
+                    setIsModalOpen(true);
+                  }}
+                  className="px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{ backgroundColor: '#1A3636', color: '#86EFAC', border: '1px solid #3A5A5A' }}
+                >
+                  View session log
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Metric</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
+                {personalCandidateAnalytics ? (
+                  <>
+                    <tr>
+                      <td className="px-6 py-4 text-sm text-gray-300">Completed sessions</td>
+                      <td className="px-6 py-4 text-sm text-white">{personalCandidateAnalytics.completedSessions}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm text-gray-300">Completion rate</td>
+                      <td className="px-6 py-4 text-sm text-white">{personalCandidateAnalytics.completionRate.toFixed(1)}%</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm text-gray-300">Avg feedback</td>
+                      <td className="px-6 py-4 text-sm text-white">
+                        {personalCandidateAnalytics.avgFeedback > 0 ? personalCandidateAnalytics.avgFeedback.toFixed(2) : 'N/A'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm text-gray-300">Mentors worked with</td>
+                      <td className="px-6 py-4 text-sm text-white">{personalCandidateAnalytics.uniqueMentors}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-4 text-sm text-gray-300">Disruptions</td>
+                      <td className="px-6 py-4 text-sm text-white">
+                        {personalCandidateAnalytics.sessionsCancelled + personalCandidateAnalytics.sessionsRescheduled + personalCandidateAnalytics.sessionsNoShow}
+                      </td>
+                    </tr>
+                  </>
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="px-6 py-8 text-center text-gray-400">
+                      No analytics available
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Detail Modal */}
+        {selectedStudent && (
+          <DetailModal
+            isOpen={isModalOpen}
+            onClose={handleCloseModal}
+            type="student"
+            name={selectedStudent.name}
+            email={selectedStudent.email}
+            phone={sessions.find(s => (s.studentEmail || '').trim().toLowerCase() === (selectedStudent.email || '').trim().toLowerCase())?.studentPhone}
+            sessions={studentSessions}
+            candidateFeedbacks={candidateFeedbacks}
+          />
+        )}
       </div>
     );
   }

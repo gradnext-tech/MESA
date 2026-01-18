@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { fetchMentorCredentials } from '@/lib/googleSheets';
+import { fetchMentorCredentials, fetchStudentCredentials } from '@/lib/googleSheets';
 
 // Rate limiting store (in-memory, use Redis in production)
 const loginAttempts = new Map<string, { count: number; resetTime: number }>();
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     // Hash the provided password
     const passwordHash = createHash('sha256').update(password).digest('hex');
 
-    let accessLevel: 'admin' | 'mesa' | 'mentor' | null = null;
+    let accessLevel: 'admin' | 'mesa' | 'mentor' | 'student' | null = null;
 
     // Check admin credentials
     if (email.trim().endsWith('@gradnext.co') && passwordHash === ADMIN_PASSWORD_HASH) {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     else if (passwordHash === STUDENT_PASSWORD_HASH) {
       accessLevel = 'mesa';
     }
-    // Check mentor credentials from Google Sheets
+    // Check mentor / student credentials from Google Sheets
     else {
       try {
         const feedbacksSpreadsheetId = process.env.GOOGLE_FEEDBACKS_SPREADSHEET_ID;
@@ -114,6 +114,22 @@ export async function POST(request: NextRequest) {
             
             if (storedPasswordHash && storedPasswordHash === passwordHash) {
               accessLevel = 'mentor';
+            }
+          }
+
+          // If not mentor, try student directory
+          if (!accessLevel) {
+            const students = await fetchStudentCredentials(feedbacksSpreadsheetId);
+            const student = students.find((s: any) => {
+              const studentEmail = (s['Email'] || s['email'] || s['Email Address'] || s['email address'] || '').trim().toLowerCase();
+              return studentEmail === email.trim().toLowerCase();
+            });
+
+            if (student) {
+              const storedPasswordHash = (student['Password Hash'] || student['PasswordHash'] || student['password_hash'] || '').trim();
+              if (storedPasswordHash && storedPasswordHash === passwordHash) {
+                accessLevel = 'student';
+              }
             }
           }
         }

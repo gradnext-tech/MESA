@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { useRouter, usePathname } from 'next/navigation';
 import { getApiUrl } from '@/utils/api';
 
-export type AccessLevel = 'admin' | 'mesa' | 'mentor' | null;
+export type AccessLevel = 'admin' | 'mesa' | 'mentor' | 'student' | null;
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const auth = storedAuth ? JSON.parse(storedAuth) : null;
 
     // Public pages that don't require authentication
-    const publicPages = ['/login', '/set-password'];
+    const publicPages = ['/login', '/set-password', '/set-student-password'];
     const isPublicPage = publicPages.includes(pathname);
 
     // If not authenticated and not on a public page, redirect to login
@@ -67,8 +67,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (auth) {
       const userAccessLevel = auth.accessLevel;
 
-      // MESA users can only access student dashboard
-      if (userAccessLevel === 'mesa') {
+      // Student users (personal) and MESA users can only access student dashboard
+      if (userAccessLevel === 'mesa' || userAccessLevel === 'student') {
         if (pathname !== '/student-dashboard' && pathname !== '/login') {
           router.push('/student-dashboard');
         }
@@ -115,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setEmail(userEmail);
 
       // Redirect based on access level
-      if (userAccessLevel === 'mesa') {
+      if (userAccessLevel === 'mesa' || userAccessLevel === 'student') {
         router.push('/student-dashboard');
       } else if (userAccessLevel === 'mentor') {
         router.push('/mentor-dashboard');
