@@ -210,7 +210,7 @@ function getDateFromWeek(year: number, week: number): Date {
 }
 
 export default function MentorDashboard() {
-  const { sessions, hasData, setSessions, setMentees, mentorFeedbacks, setMentorFeedbacks, setCandidateFeedbacks } = useData();
+  const { sessions, hasData, setSessions, setStudents, mentorFeedbacks, setMentorFeedbacks, setCandidateFeedbacks } = useData();
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedMentor, setSelectedMentor] = useState<MentorMetrics | null>(null);
@@ -243,13 +243,16 @@ export default function MentorDashboard() {
           });
 
           if (response.ok && result.success && result.data.sessions) {
-            const { parseSpreadsheetData } = await import('@/utils/metricsCalculator');
+            const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
             const parsedSessions = parseSpreadsheetData(
               result.data.sessions,
               result.data.mentorFeedbacks || [],
               result.data.candidateFeedbacks || []
             );
+            const parsedStudents = parseStudentData(result.data.students || result.data.mentees || []);
             setSessions(parsedSessions);
+            setStudents(parsedStudents);
+            setCandidateFeedbacks(result.data.candidateFeedbacks || []);
             // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
             const mentorFb = Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : [];
             console.log('Setting mentorFeedbacks:', mentorFb.length);
@@ -639,15 +642,15 @@ export default function MentorDashboard() {
       });
 
       if (response.ok && result.success && result.data.sessions) {
-        const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+        const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
         const parsedSessions = parseSpreadsheetData(
           result.data.sessions,
           result.data.mentorFeedbacks || [],
           result.data.candidateFeedbacks || []
         );
-        const parsedMentees = parseMenteeData(result.data.mentees || []);
+        const parsedStudents = parseStudentData(result.data.students || result.data.mentees || []);
         setSessions(parsedSessions);
-        setMentees(parsedMentees);
+        setStudents(parsedStudents);
         setCandidateFeedbacks(result.data.candidateFeedbacks || []);
         // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
         const mentorFb = Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : [];
@@ -856,16 +859,31 @@ export default function MentorDashboard() {
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <AlertCircle className="w-16 h-16 text-gray-400 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">No Data Available</h2>
-        <p className="text-gray-300 mb-6">Please upload your session data first</p>
-        <Link
-          href="/"
-          className="px-6 py-3 text-white rounded-lg transition-colors"
-          style={{ backgroundColor: '#22C55E' }}
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#16A34A'}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#22C55E'}
-        >
-          Go to Home
-        </Link>
+        <p className="text-gray-300 mb-6 text-center max-w-md">
+          {sessions.length === 0 
+            ? 'No valid session data found. Please ensure your Google Sheet has data with Date, Mentor Email, and Student Email fields filled in.'
+            : 'Please upload your session data first'}
+        </p>
+        <div className="flex gap-4">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="px-6 py-3 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            style={{ backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E' }}
+          >
+            <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Loading...' : 'Reload Data'}
+          </button>
+          <Link
+            href="/"
+            className="px-6 py-3 text-white rounded-lg transition-colors"
+            style={{ backgroundColor: '#3A5A5A' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3A5A5A'}
+          >
+            Go to Home
+          </Link>
+        </div>
       </div>
     );
   }

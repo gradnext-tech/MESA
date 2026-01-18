@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
-import { calculateMenteeMetrics, getDetailedCandidateAnalytics, parseSessionDate, normalizeSessionStatus } from '@/utils/metricsCalculator';
+import { calculateStudentMetrics, getDetailedCandidateAnalytics, parseSessionDate, normalizeSessionStatus } from '@/utils/metricsCalculator';
 import { getApiUrl } from '@/utils/api';
 import { MetricCard } from '@/components/MetricCard';
 import { DetailModal } from '@/components/DetailModal';
@@ -38,12 +38,12 @@ import {
 import { startOfWeek, endOfWeek, format, parseISO, eachWeekOfInterval, min, max, isWithinInterval, startOfDay, startOfMonth, endOfMonth } from 'date-fns';
 import { Filter } from 'lucide-react';
 
-// Multi-select component for mentees
-const MenteeMultiSelect: React.FC<{
-  mentees: Array<{ email: string; name: string }>;
-  selectedMentees: string[];
+// Multi-select component for students
+const StudentMultiSelect: React.FC<{
+  students: Array<{ email: string; name: string }>;
+  selectedStudents: string[];
   onChange: (selected: string[]) => void;
-}> = ({ mentees, selectedMentees, onChange }) => {
+}> = ({ students, selectedStudents, onChange }) => {
   const [isOpen, setIsOpen] = React.useState(false);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
@@ -65,10 +65,10 @@ const MenteeMultiSelect: React.FC<{
   }, [isOpen]);
 
   const handleToggle = (email: string) => {
-    if (selectedMentees.includes(email)) {
-      onChange(selectedMentees.filter(e => e !== email));
+    if (selectedStudents.includes(email)) {
+      onChange(selectedStudents.filter(e => e !== email));
     } else {
-      onChange([...selectedMentees, email]);
+      onChange([...selectedStudents, email]);
     }
   };
 
@@ -84,11 +84,11 @@ const MenteeMultiSelect: React.FC<{
         onClick={() => setIsOpen(!isOpen)}
       >
         <span className="text-sm">
-          {selectedMentees.length === 0 
-            ? 'All Mentees' 
-            : selectedMentees.length === 1
-            ? mentees.find(m => m.email === selectedMentees[0])?.name || '1 mentee'
-            : `${selectedMentees.length} mentees`}
+          {selectedStudents.length === 0 
+            ? 'All Students' 
+            : selectedStudents.length === 1
+            ? students.find(m => m.email === selectedStudents[0])?.name || '1 student'
+            : `${selectedStudents.length} students`}
         </span>
         <span className="text-gray-400">▼</span>
       </div>
@@ -99,8 +99,8 @@ const MenteeMultiSelect: React.FC<{
         >
           <div className="p-2 border-b" style={{ borderColor: '#3A5A5A' }}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-gray-300">Select Mentees</span>
-              {selectedMentees.length > 0 && (
+              <span className="text-xs font-medium text-gray-300">Select Students</span>
+              {selectedStudents.length > 0 && (
                 <button
                   onClick={handleSelectAll}
                   className="text-xs text-gray-400 hover:text-white"
@@ -112,41 +112,41 @@ const MenteeMultiSelect: React.FC<{
             <label className="flex items-center gap-2 p-1 hover:bg-[#1A3636] rounded cursor-pointer">
               <input
                 type="checkbox"
-                checked={selectedMentees.length === 0}
+                checked={selectedStudents.length === 0}
                 onChange={handleSelectAll}
                 className="w-4 h-4 rounded"
                 style={{ accentColor: '#22C55E' }}
               />
-              <span className="text-sm text-white">All Mentees</span>
+              <span className="text-sm text-white">All Students</span>
             </label>
           </div>
           <div className="max-h-48 overflow-y-auto">
-            {mentees.map((mentee) => (
+            {students.map((student) => (
               <label
-                key={mentee.email}
+                key={student.email}
                 className="flex items-center gap-2 p-2 hover:bg-[#1A3636] cursor-pointer"
               >
                 <input
                   type="checkbox"
-                  checked={selectedMentees.includes(mentee.email)}
-                  onChange={() => handleToggle(mentee.email)}
+                  checked={selectedStudents.includes(student.email)}
+                  onChange={() => handleToggle(student.email)}
                   className="w-4 h-4 rounded"
                   style={{ accentColor: '#22C55E' }}
                 />
                 <div className="flex-1">
-                  <span className="text-sm text-white">{mentee.name}</span>
-                  <p className="text-xs text-gray-400 truncate">{mentee.email}</p>
+                  <span className="text-sm text-white">{student.name}</span>
+                  <p className="text-xs text-gray-400 truncate">{student.email}</p>
                 </div>
               </label>
             ))}
           </div>
         </div>
       )}
-      {selectedMentees.length > 0 && (
+      {selectedStudents.length > 0 && (
         <button
           onClick={() => onChange([])}
           className="ml-2 text-xs text-gray-400 hover:text-white px-2"
-          title="Clear mentee filter"
+          title="Clear student filter"
         >
           ✕
         </button>
@@ -192,21 +192,21 @@ function getDateFromWeek(year: number, week: number): Date {
   return weekStart;
 }
 
-export default function MenteeDashboard() {
-  const { sessions, hasData, mentees, setSessions, setMentees, setCandidateFeedbacks } = useData();
+export default function StudentDashboard() {
+  const { sessions, hasData, students, setSessions, setStudents, setCandidateFeedbacks } = useData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [weekFilter, setWeekFilter] = useState<Date | undefined>(undefined);
   const [monthFilter, setMonthFilter] = useState<string>(''); // Format: YYYY-MM
-  const [selectedMenteeFilter, setSelectedMenteeFilter] = useState<string[]>([]); // Multi-select: array of emails
+  const [selectedStudentFilter, setSelectedStudentFilter] = useState<string[]>([]); // Multi-select: array of emails
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMentee, setSelectedMentee] = useState<CandidateSessionStats | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<CandidateSessionStats | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const { candidateFeedbacks, setMentorFeedbacks } = useData();
 
   // Auto-fetch data if not available (when navigating directly to this page)
   React.useEffect(() => {
-    if (!hasData || mentees.length === 0) {
+    if (!hasData || students.length === 0) {
       const autoConnect = async () => {
         try {
           const response = await fetch(getApiUrl('api/sheets'), {
@@ -220,15 +220,15 @@ export default function MenteeDashboard() {
           const result = await response.json();
 
           if (response.ok && result.success && result.data.sessions) {
-            const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+            const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
             const parsedSessions = parseSpreadsheetData(
               result.data.sessions,
               result.data.mentorFeedbacks || [],
               result.data.candidateFeedbacks || []
             );
-            const parsedMentees = parseMenteeData(result.data.mentees || []);
+            const parsedStudents = parseStudentData(result.data.students || result.data.mentees || []);
             setSessions(parsedSessions);
-            setMentees(parsedMentees);
+            setStudents(parsedStudents);
             setCandidateFeedbacks(result.data.candidateFeedbacks || []);
             setMentorFeedbacks(result.data.mentorFeedbacks || []);
           }
@@ -239,15 +239,15 @@ export default function MenteeDashboard() {
 
       autoConnect();
     }
-  }, [hasData, mentees.length, setSessions, setMentees, setCandidateFeedbacks, setMentorFeedbacks]);
+  }, [hasData, students.length, setSessions, setStudents, setCandidateFeedbacks, setMentorFeedbacks]);
 
-  const menteeMetrics = useMemo(() => {
+  const studentMetrics = useMemo(() => {
     if (!hasData) return null;
-    const menteeFilter = selectedMenteeFilter.length > 0 ? selectedMenteeFilter : undefined;
-    return calculateMenteeMetrics(sessions, weekFilter, mentees, candidateFeedbacks, monthFilter || undefined, menteeFilter);
-  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter, mentees, candidateFeedbacks]);
+    const studentFilter = selectedStudentFilter.length > 0 ? selectedStudentFilter : undefined;
+    return calculateStudentMetrics(sessions, weekFilter, students, candidateFeedbacks, monthFilter || undefined, studentFilter);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedStudentFilter, students, candidateFeedbacks]);
 
-  // Calculate filtered sessions for metrics (same logic as in calculateMenteeMetrics)
+  // Calculate filtered sessions for metrics (same logic as in calculateStudentMetrics)
   const filteredSessionsForMetrics = useMemo(() => {
     if (!hasData || !sessions || sessions.length === 0) return [];
 
@@ -306,23 +306,23 @@ export default function MenteeDashboard() {
       });
     }
 
-    // Filter by mentee email(s) if provided
-    if (selectedMenteeFilter.length > 0) {
-      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+    // Filter by student email(s) if provided
+    if (selectedStudentFilter.length > 0) {
+      const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filtered = filtered.filter(session => {
-        const sessionEmail = (session.menteeEmail || '').trim().toLowerCase();
+        const sessionEmail = (session.studentEmail || '').trim().toLowerCase();
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
 
     return filtered;
-  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter]);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedStudentFilter]);
 
   // Calculate total sessions (unfiltered) for average sessions per candidate metric
   const totalSessionsUnfiltered = useMemo(() => {
     if (!hasData) return 0;
     // Count all completed sessions without any filters
-    // Filter out mentor-side disruptions (same logic as in calculateMenteeMetrics)
+    // Filter out mentor-side disruptions (same logic as in calculateStudentMetrics)
     const isMentorDisruption = (status?: string) => {
       const normalized = normalizeSessionStatus(status);
       return (
@@ -341,58 +341,58 @@ export default function MenteeDashboard() {
     return completedSessions.length;
   }, [sessions, hasData]);
 
-  // Calculate unique candidates who have booked sessions (matching Mentee Directory with MESA sheet)
-  // This now respects the week/month/mentee filters
+  // Calculate unique candidates who have booked sessions (matching Student Directory with MESA sheet)
+  // This now respects the week/month/student filters
   const uniqueCandidatesWithSessions = useMemo(() => {
     // Use filtered sessions instead of all sessions to respect filters
     const sessionsToUse = filteredSessionsForMetrics.length > 0 ? filteredSessionsForMetrics : sessions;
     
-    if (!hasData || !mentees || mentees.length === 0) {
-      // If no mentees directory, fallback to unique emails from filtered sessions
-      const uniqueEmails = new Set(sessionsToUse.map(s => (s.menteeEmail || '').trim().toLowerCase()).filter(e => e));
+    if (!hasData || !students || students.length === 0) {
+      // If no students directory, fallback to unique emails from filtered sessions
+      const uniqueEmails = new Set(sessionsToUse.map(s => (s.studentEmail || '').trim().toLowerCase()).filter(e => e));
       return uniqueEmails.size;
     }
 
-    // Get unique mentee emails and names from filtered sessions (MESA sheet)
-    const sessionMenteeEmails = new Set<string>();
-    const sessionMenteeNames = new Set<string>();
+    // Get unique student emails and names from filtered sessions (MESA sheet)
+    const sessionStudentEmails = new Set<string>();
+    const sessionStudentNames = new Set<string>();
     
     sessionsToUse.forEach(session => {
-      const email = (session.menteeEmail || '').trim().toLowerCase();
-      const name = (session.menteeName || '').trim().toLowerCase();
-      if (email) sessionMenteeEmails.add(email);
-      if (name) sessionMenteeNames.add(name);
+      const email = (session.studentEmail || '').trim().toLowerCase();
+      const name = (session.studentName || '').trim().toLowerCase();
+      if (email) sessionStudentEmails.add(email);
+      if (name) sessionStudentNames.add(name);
     });
 
-    // Match mentees from directory with sessions
+    // Match students from directory with sessions
     // Match by email (primary) or by name (fallback)
-    const matchedMentees = new Set<string>();
+    const matchedStudents = new Set<string>();
     
-    mentees.forEach(mentee => {
-      const menteeEmail = (mentee.email || '').trim().toLowerCase();
-      const menteeName = (mentee.name || '').trim().toLowerCase();
+    students.forEach(student => {
+      const studentEmail = (student.email || '').trim().toLowerCase();
+      const studentName = (student.name || '').trim().toLowerCase();
       
       // Match by email (exact match)
-      if (menteeEmail && sessionMenteeEmails.has(menteeEmail)) {
-        matchedMentees.add(menteeEmail);
+      if (studentEmail && sessionStudentEmails.has(studentEmail)) {
+        matchedStudents.add(studentEmail);
         return;
       }
       
       // Match by name (case-insensitive, handle variations)
-      if (menteeName && sessionMenteeNames.has(menteeName)) {
-        matchedMentees.add(menteeEmail || menteeName);
+      if (studentName && sessionStudentNames.has(studentName)) {
+        matchedStudents.add(studentEmail || studentName);
         return;
       }
       
       // Try partial name matching (first name + last name)
-      if (menteeName) {
-        const nameParts = menteeName.split(/\s+/).filter((p: string) => p.length > 0);
+      if (studentName) {
+        const nameParts = studentName.split(/\s+/).filter((p: string) => p.length > 0);
         if (nameParts.length > 0) {
           const firstName = nameParts[0].toLowerCase();
           const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1].toLowerCase() : '';
           
           // Check if any session name matches
-          for (const sessionName of sessionMenteeNames) {
+          for (const sessionName of sessionStudentNames) {
             const sessionNameParts = sessionName.split(/\s+/).filter((p: string) => p.length > 0);
             if (sessionNameParts.length > 0) {
               const sessionFirstName = sessionNameParts[0].toLowerCase();
@@ -400,7 +400,7 @@ export default function MenteeDashboard() {
               
               // Match if first and last names match
               if (firstName === sessionFirstName && lastName && sessionLastName && lastName === sessionLastName) {
-                matchedMentees.add(menteeEmail || menteeName);
+                matchedStudents.add(studentEmail || studentName);
                 break;
               }
             }
@@ -409,25 +409,25 @@ export default function MenteeDashboard() {
       }
     });
 
-    return matchedMentees.size;
-  }, [filteredSessionsForMetrics, sessions, hasData, mentees]);
+    return matchedStudents.size;
+  }, [filteredSessionsForMetrics, sessions, hasData, students]);
 
-  // Get unique mentees for filter
-  const uniqueMentees = useMemo(() => {
-    const menteeMap = new Map<string, { email: string; name: string }>();
+  // Get unique students for filter
+  const uniqueStudents = useMemo(() => {
+    const studentMap = new Map<string, { email: string; name: string }>();
     sessions.forEach(session => {
-      const email = session.menteeEmail;
+      const email = session.studentEmail;
       if (email && email.trim()) {
         const normalizedEmail = email.trim().toLowerCase();
-        if (!menteeMap.has(normalizedEmail)) {
-          menteeMap.set(normalizedEmail, {
+        if (!studentMap.has(normalizedEmail)) {
+          studentMap.set(normalizedEmail, {
             email: email,
-            name: session.menteeName || email,
+            name: session.studentName || email,
           });
         }
       }
     });
-    return Array.from(menteeMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(studentMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [sessions]);
 
   const candidateAnalytics = useMemo(() => {
@@ -464,15 +464,15 @@ export default function MenteeDashboard() {
       });
     }
     
-    if (selectedMenteeFilter.length > 0) {
-      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+    if (selectedStudentFilter.length > 0) {
+      const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filteredSessions = filteredSessions.filter(s => {
-        const sessionEmail = (s.menteeEmail || '').trim().toLowerCase();
+        const sessionEmail = (s.studentEmail || '').trim().toLowerCase();
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
     
-    // Exclude mentor-side disruptions for mentee dashboard analytics
+    // Exclude mentor-side disruptions for student dashboard analytics
     const filteredWithoutMentorDisruptions = filteredSessions.filter(s => {
       const normalized = normalizeSessionStatus(s.sessionStatus);
       return (
@@ -485,7 +485,7 @@ export default function MenteeDashboard() {
     });
 
     return getDetailedCandidateAnalytics(filteredWithoutMentorDisruptions, candidateFeedbacks, filteredWithoutMentorDisruptions);
-  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter, candidateFeedbacks]);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedStudentFilter, candidateFeedbacks]);
 
   // Calculate additional metrics for new cards
   const top10BySessions = useMemo(() => {
@@ -622,9 +622,9 @@ export default function MenteeDashboard() {
   const filteredCandidates = useMemo(() => {
     let filtered = candidateAnalytics;
     
-    // Apply mentee filter if selected
-    if (selectedMenteeFilter.length > 0) {
-      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+    // Apply student filter if selected
+    if (selectedStudentFilter.length > 0) {
+      const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filtered = filtered.filter(c => {
         const candidateEmail = (c.email || '').trim().toLowerCase();
         return normalizedFilterEmails.includes(candidateEmail);
@@ -642,22 +642,22 @@ export default function MenteeDashboard() {
     }
     
     return filtered;
-  }, [candidateAnalytics, searchTerm, selectedMenteeFilter]);
+  }, [candidateAnalytics, searchTerm, selectedStudentFilter]);
 
-  const handleMenteeClick = (candidate: CandidateSessionStats) => {
-    setSelectedMentee(candidate);
+  const handleStudentClick = (candidate: CandidateSessionStats) => {
+    setSelectedStudent(candidate);
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setSelectedMentee(null);
+    setSelectedStudent(null);
   };
 
-  const menteeSessions = useMemo(() => {
-    if (!selectedMentee) return [];
-    return sessions.filter(s => s.menteeEmail === selectedMentee.email);
-  }, [selectedMentee, sessions]);
+  const studentSessions = useMemo(() => {
+    if (!selectedStudent) return [];
+    return sessions.filter(s => s.studentEmail === selectedStudent.email);
+  }, [selectedStudent, sessions]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -673,15 +673,15 @@ export default function MenteeDashboard() {
       const result = await response.json();
 
       if (response.ok && result.success && result.data.sessions) {
-        const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+        const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
         const parsedSessions = parseSpreadsheetData(
           result.data.sessions,
           result.data.mentorFeedbacks || [],
           result.data.candidateFeedbacks || []
         );
-        const parsedMentees = parseMenteeData(result.data.mentees || []);
+        const parsedStudents = parseStudentData(result.data.students || result.data.mentees || []);
         setSessions(parsedSessions);
-        setMentees(parsedMentees);
+        setStudents(parsedStudents);
         setCandidateFeedbacks(result.data.candidateFeedbacks || []);
         setMentorFeedbacks(result.data.mentorFeedbacks || []);
       }
@@ -731,16 +731,16 @@ export default function MenteeDashboard() {
       });
     }
     
-    // Apply mentee filter
-    if (selectedMenteeFilter.length > 0) {
-      const normalizedFilterEmails = selectedMenteeFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+    // Apply student filter
+    if (selectedStudentFilter.length > 0) {
+      const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filteredSessions = filteredSessions.filter(s => {
-        const sessionEmail = (s.menteeEmail || '').trim().toLowerCase();
+        const sessionEmail = (s.studentEmail || '').trim().toLowerCase();
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
     
-    // Exclude mentor-side disruptions for mentee dashboard
+    // Exclude mentor-side disruptions for student dashboard
     filteredSessions = filteredSessions.filter(s => {
       const normalized = normalizeSessionStatus(s.sessionStatus);
       return (
@@ -817,23 +817,38 @@ export default function MenteeDashboard() {
     
     // Return all weeks (including those with 0 sessions) for complete trend visualization
     return weekData;
-  }, [sessions, hasData, weekFilter, monthFilter, selectedMenteeFilter]);
+  }, [sessions, hasData, weekFilter, monthFilter, selectedStudentFilter]);
 
-  if (!hasData || !menteeMetrics) {
+  if (!hasData || !studentMetrics) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <AlertCircle className="w-16 h-16 text-gray-400 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">No Data Available</h2>
-        <p className="text-gray-300 mb-6">Please upload your session data first</p>
-        <Link
-          href="/"
-          className="px-6 py-3 text-white rounded-lg transition-colors"
-          style={{ backgroundColor: '#22C55E' }}
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#16A34A'}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#22C55E'}
-        >
-          Go to Home
-        </Link>
+        <p className="text-gray-300 mb-6 text-center max-w-md">
+          {sessions.length === 0 
+            ? 'No valid session data found. Please ensure your Google Sheet has data with Date, Mentor Email, and Student Email fields filled in.'
+            : 'Please upload your session data first'}
+        </p>
+        <div className="flex gap-4">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="px-6 py-3 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            style={{ backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E' }}
+          >
+            <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Loading...' : 'Reload Data'}
+          </button>
+          <Link
+            href="/"
+            className="px-6 py-3 text-white rounded-lg transition-colors"
+            style={{ backgroundColor: '#3A5A5A' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3A5A5A'}
+          >
+            Go to Home
+          </Link>
+        </div>
       </div>
     );
   }
@@ -947,13 +962,13 @@ export default function MenteeDashboard() {
               </>
             )}
           </div>
-          {/* Mentee Filter - Multi-select */}
+          {/* Student Filter - Multi-select */}
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-300 whitespace-nowrap">Mentee:</label>
-            <MenteeMultiSelect
-              mentees={uniqueMentees}
-              selectedMentees={selectedMenteeFilter}
-              onChange={setSelectedMenteeFilter}
+            <label className="text-sm text-gray-300 whitespace-nowrap">Student:</label>
+            <StudentMultiSelect
+              students={uniqueStudents}
+              selectedStudents={selectedStudentFilter}
+              onChange={setSelectedStudentFilter}
             />
           </div>
         </div>
@@ -963,7 +978,7 @@ export default function MenteeDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <MetricCard
           title="Total Sessions Done"
-          value={menteeMetrics.totalSessionsDone}
+          value={studentMetrics.totalSessionsDone}
           icon={Calendar}
           iconColor="text-[#22C55E]"
           subtitle="Completed sessions"
@@ -973,53 +988,53 @@ export default function MenteeDashboard() {
           value={uniqueCandidatesWithSessions}
           icon={Users}
           iconColor="text-[#22C55E]"
-          subtitle="Candidates from Mentee Directory who booked sessions"
+          subtitle="Candidates from Student Directory who booked sessions"
         />
         <MetricCard
           title="Avg Sessions Per Candidate"
           value={(() => {
-            // Formula: Total Sessions Done (filtered) / Total Candidates (from Mentee Directory)
-            if (!hasData || !mentees || mentees.length === 0 || !menteeMetrics) {
+            // Formula: Total Sessions Done (filtered) / Total Candidates (from Student Directory)
+            if (!hasData || !students || students.length === 0 || !studentMetrics) {
               return 'N/A';
             }
             
-            // Use filtered sessions count from menteeMetrics (already filtered by week/month/mentee)
-            const totalSessionsDone = menteeMetrics.totalSessionsDone;
-            const totalCandidates = mentees.length;
+            // Use filtered sessions count from studentMetrics (already filtered by week/month/student)
+            const totalSessionsDone = studentMetrics.totalSessionsDone;
+            const totalCandidates = students.length;
             return totalSessionsDone > 0 
               ? (totalSessionsDone / totalCandidates).toFixed(2)
               : '0.00';
           })()}
           icon={TrendingUp}
           iconColor="text-[#22C55E]"
-          subtitle="Total Sessions Done (filtered) / Total Candidates (from Mentee Directory)"
+          subtitle="Total Sessions Done (filtered) / Total Candidates (from Student Directory)"
         />
         <MetricCard
           title="Avg Sessions Per Active Candidate"
           value={(() => {
-            // Formula: Total Sessions Done (filtered) / Candidates with at least 1 session in filtered range (who are in Mentee Directory)
-            if (!hasData || !mentees || mentees.length === 0 || !menteeMetrics) {
+            // Formula: Total Sessions Done (filtered) / Candidates with at least 1 session in filtered range (who are in Student Directory)
+            if (!hasData || !students || students.length === 0 || !studentMetrics) {
               return 'N/A';
             }
             
-            // Use filtered sessions count from menteeMetrics (already filtered by week/month/mentee)
-            const totalSessionsDone = menteeMetrics.totalSessionsDone;
+            // Use filtered sessions count from studentMetrics (already filtered by week/month/student)
+            const totalSessionsDone = studentMetrics.totalSessionsDone;
             
-            // Get unique mentee names from filtered sessions (who have booked at least 1 session in the filtered range)
+            // Get unique student names from filtered sessions (who have booked at least 1 session in the filtered range)
             const filteredCompletedSessions = filteredSessionsForMetrics.filter(
               s => normalizeSessionStatus(s.sessionStatus) === 'completed'
             );
             
-            const sessionMenteeNames = new Set(
+            const sessionStudentNames = new Set(
               filteredCompletedSessions
-                .map(s => (s.menteeName || '').trim().toLowerCase())
+                .map(s => (s.studentName || '').trim().toLowerCase())
                 .filter(name => name)
             );
             
-            // Count how many candidates from Mentee Directory have booked at least 1 session in the filtered range
-            const activeCandidatesCount = mentees.filter(mentee => {
-              const menteeName = (mentee.name || '').trim().toLowerCase();
-              return menteeName && sessionMenteeNames.has(menteeName);
+            // Count how many candidates from Student Directory have booked at least 1 session in the filtered range
+            const activeCandidatesCount = students.filter(student => {
+              const studentName = (student.name || '').trim().toLowerCase();
+              return studentName && sessionStudentNames.has(studentName);
             }).length;
             
             return activeCandidatesCount > 0 
@@ -1028,14 +1043,14 @@ export default function MenteeDashboard() {
           })()}
           icon={TrendingUp}
           iconColor="text-[#22C55E]"
-          subtitle="Total Sessions Done (filtered) / Active Candidates (from Mentee Directory)"
+          subtitle="Total Sessions Done (filtered) / Active Candidates (from Student Directory)"
         />
         <MetricCard
           title="Total Sessions Cancelled / Rescheduled / No Show"
           value={
-            menteeMetrics.totalSessionsCancelled +
-            menteeMetrics.totalSessionsRescheduled +
-            menteeMetrics.totalNoShows
+            studentMetrics.totalSessionsCancelled +
+            studentMetrics.totalSessionsRescheduled +
+            studentMetrics.totalNoShows
           }
           icon={XCircle}
           iconColor="text-red-500"
@@ -1043,7 +1058,7 @@ export default function MenteeDashboard() {
         />
         <MetricCard
           title="Avg. Rating"
-          value={menteeMetrics.avgFeedbackScore > 0 ? menteeMetrics.avgFeedbackScore.toFixed(2) : 'N/A'}
+          value={studentMetrics.avgFeedbackScore > 0 ? studentMetrics.avgFeedbackScore.toFixed(2) : 'N/A'}
           icon={Star}
           iconColor="text-[#22C55E]"
           subtitle="Overall average"
@@ -1074,7 +1089,7 @@ export default function MenteeDashboard() {
                   <div
                     key={uniqueKey}
                     className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
-                    onClick={() => handleMenteeClick(candidate)}
+                    onClick={() => handleStudentClick(candidate)}
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-bold text-[#22C55E] w-6">#{index + 1}</span>
@@ -1109,7 +1124,7 @@ export default function MenteeDashboard() {
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
-                  onClick={() => handleMenteeClick(candidate)}
+                  onClick={() => handleStudentClick(candidate)}
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-bold text-[#22C55E] w-6">#{index + 1}</span>
@@ -1144,7 +1159,7 @@ export default function MenteeDashboard() {
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
-                  onClick={() => handleMenteeClick(candidate)}
+                  onClick={() => handleStudentClick(candidate)}
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-bold text-orange-500 w-6">#{index + 1}</span>
@@ -1176,7 +1191,7 @@ export default function MenteeDashboard() {
                 <div
                   key={candidate.email}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1A3636] cursor-pointer transition-colors"
-                  onClick={() => handleMenteeClick(candidate)}
+                  onClick={() => handleStudentClick(candidate)}
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-bold text-red-500 w-6">#{index + 1}</span>
@@ -1254,16 +1269,16 @@ export default function MenteeDashboard() {
         )}
       </div>
 
-      {/* Individual Mentee Analytics Table */}
+      {/* Individual Student Analytics Table */}
       <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
         <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">Individual Mentee Analytics</h3>
+            <h3 className="text-lg font-semibold text-white">Individual Student Analytics</h3>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search mentees..."
+                placeholder="Search students..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
@@ -1283,7 +1298,7 @@ export default function MenteeDashboard() {
             <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentee Details
+                  Student Details
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Sessions
@@ -1313,7 +1328,7 @@ export default function MenteeDashboard() {
                   style={{ borderColor: '#3A5A5A' }}
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
-                  onClick={() => handleMenteeClick(candidate)}
+                  onClick={() => handleStudentClick(candidate)}
                 >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col">
@@ -1423,15 +1438,15 @@ export default function MenteeDashboard() {
       </div>
 
       {/* Detail Modal */}
-      {selectedMentee && (
+      {selectedStudent && (
         <DetailModal
           isOpen={isModalOpen}
           onClose={handleCloseModal}
-          type="mentee"
-          name={selectedMentee.name}
-          email={selectedMentee.email}
-          phone={sessions.find(s => s.menteeEmail === selectedMentee.email)?.menteePhone}
-          sessions={menteeSessions}
+          type="student"
+          name={selectedStudent.name}
+          email={selectedStudent.email}
+          phone={sessions.find(s => s.studentEmail === selectedStudent.email)?.studentPhone}
+          sessions={studentSessions}
           candidateFeedbacks={candidateFeedbacks}
         />
       )}

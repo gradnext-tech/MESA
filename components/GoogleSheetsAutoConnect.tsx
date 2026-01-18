@@ -9,7 +9,7 @@ interface GoogleSheetsAutoConnectProps {
     sessions: any[]; 
     mentorFeedbacks?: any[]; 
     candidateFeedbacks?: any[];
-    mentees?: any[];
+    students?: any[];
   }) => void;
   onError?: () => void;
 }
@@ -59,7 +59,7 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
           sessions: result.data.sessions,
           mentorFeedbacks: result.data.mentorFeedbacks || [],
           candidateFeedbacks: result.data.candidateFeedbacks || [],
-          mentees: result.data.mentees || [],
+          students: result.data.students || result.data.mentees || [],
         });
         setSuccess(true);
         setSpreadsheetId(result.sessionsSpreadsheetId || result.spreadsheetId);
@@ -185,9 +185,9 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
               <p className="text-sm text-gray-300 mb-1">Must have <strong>"Mesa tracker"</strong> sheet with these columns:</p>
               <div className="rounded-lg p-3 mt-2" style={{ backgroundColor: '#1A3636' }}>
                 <code className="text-xs text-gray-300">
-                  S No, Mentor Name, Mentor Email ID, Mentee Name, Mentee Email, 
-                  Mentee Ph no, Date, Time, Invite Title, Invitation status, 
-                  Mentor Confirmation Status, Mentee Confirmation Status, Session Status, 
+                  S No, Mentor Name, Mentor Email ID, Student Name, Student Email, 
+                  Student Ph no, Date, Time, Invite Title, Invitation status, 
+                  Mentor Confirmation Status, Student Confirmation Status, Session Status, 
                   Comments, Payment Status
                 </code>
               </div>
@@ -199,7 +199,7 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
                   <p className="text-sm text-gray-300 mb-1">1. <strong>"Mentor Feedbacks filled by candidate"</strong> sheet:</p>
                   <div className="rounded-lg p-3 mt-2" style={{ backgroundColor: '#1A3636' }}>
                     <code className="text-xs text-gray-300">
-                      Date, Mentor Email (or Mentor Email ID), Mentee Email (or Candidate Email), 
+                      Date, Mentor Email (or Mentor Email ID), Student Email (or Candidate Email), 
                       Feedback, Comments
                     </code>
                   </div>
@@ -208,7 +208,7 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
                   <p className="text-sm text-gray-300 mb-1">2. <strong>"Candidate feedback form filled by mentors"</strong> sheet:</p>
                   <div className="rounded-lg p-3 mt-2" style={{ backgroundColor: '#1A3636' }}>
                     <code className="text-xs text-gray-300">
-                      Date, Mentor Email (or Mentor Email ID), Mentee Email (or Candidate Email), 
+                      Date, Mentor Email (or Mentor Email ID), Student Email (or Candidate Email), 
                       Feedback, Comments
                     </code>
                   </div>
@@ -217,7 +217,7 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            ⚠️ Make sure the service account has access to both spreadsheets. Feedbacks will be matched to sessions by Date, Mentor Email, and Mentee Email.
+            ⚠️ Make sure the service account has access to both spreadsheets. Feedbacks will be matched to sessions by Date, Mentor Email, and Student Email.
           </p>
         </div>
       </div>

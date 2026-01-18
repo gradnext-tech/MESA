@@ -19,7 +19,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
   const navItems = accessLevel === 'admin' ? [
     { href: '/', label: 'Home', icon: LayoutDashboard },
     { href: '/mentor-dashboard', label: 'Mentor Dashboard', icon: UserCheck },
-    { href: '/mentee-dashboard', label: 'Student Dashboard', icon: Users },
+    { href: '/student-dashboard', label: 'Student Dashboard', icon: Users },
     { href: '/weekwise-sessions', label: 'All Session Details', icon: Calendar },
   ] : [];
 

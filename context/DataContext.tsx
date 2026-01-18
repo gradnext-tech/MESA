@@ -1,13 +1,13 @@
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { Session, Mentee } from '@/types';
+import { Session, Student } from '@/types';
 
 interface DataContextType {
   sessions: Session[];
   setSessions: (sessions: Session[]) => void;
-  mentees: Mentee[];
-  setMentees: (mentees: Mentee[]) => void;
+  students: Student[];
+  setStudents: (students: Student[]) => void;
   candidateFeedbacks: any[];
   setCandidateFeedbacks: (feedbacks: any[]) => void;
   mentorFeedbacks: any[];
@@ -19,7 +19,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [mentees, setMentees] = useState<Mentee[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [candidateFeedbacks, setCandidateFeedbacks] = useState<any[]>([]);
   const [mentorFeedbacks, setMentorFeedbacks] = useState<any[]>([]);
 
@@ -28,8 +28,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       value={{
         sessions,
         setSessions,
-        mentees,
-        setMentees,
+        students,
+        setStudents,
         candidateFeedbacks,
         setCandidateFeedbacks,
         mentorFeedbacks,

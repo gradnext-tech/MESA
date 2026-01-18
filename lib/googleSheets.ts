@@ -83,67 +83,59 @@ export async function fetchSheetData(
     });
 
     const rows = response.data.values;
-    console.log(`📊 Sheet "${sheetName}":`, {
-      totalRows: rows?.length || 0,
-      firstRow: rows?.[0],
-      firstRowLength: rows?.[0]?.length,
-      secondRow: rows?.[1],
-      secondRowLength: rows?.[1]?.length,
-      firstFewRows: rows?.slice(0, 4) // Show first 4 rows for debugging
-    });
-    
     if (!rows || rows.length === 0) {
-      console.log(`❌ No rows found in sheet "${sheetName}"`);
       return [];
     }
 
-    // Find the header row - it might not be the first row (could be empty or have "Form_Responses")
-    // For "Mentor Feedbacks filled by candidate", headers are in row 2 (index 1)
-    let headerRowIndex = -1;
-    let actualHeaders: string[] = [];
+    // For Google Forms responses, headers are in row 2, not row 1
+    // Row 1 typically contains form metadata
+    const data: SheetData[] = [];
     
-    // Look through the first few rows to find the header row
-    for (let i = 0; i < Math.min(rows.length, 10); i++) {
-      const row = rows[i];
-      if (row && row.length > 0) {
-        // Check if this row looks like headers (has multiple non-empty cells)
-        const nonEmptyCells = row.filter((cell: any) => 
-          cell !== null && cell !== undefined && String(cell).trim() !== ''
-        );
-        
-        // Skip rows that are just "Form_Responses" or similar metadata
-        const rowText = row.map((cell: any) => String(cell || '').toLowerCase()).join(' ');
-        const isMetadataRow = rowText.includes('form_responses') || 
-                             rowText.includes('responder link') || 
-                             rowText.includes('edit link');
-        
-        // If row has at least 3 non-empty cells and is not a metadata row, it's likely a header row
-        if (nonEmptyCells.length >= 3 && !isMetadataRow) {
-          headerRowIndex = i;
-          actualHeaders = row.map((cell: any) => String(cell || '').trim());
-          console.log(`✅ Found headers at row ${i + 1} (index ${i}) for "${sheetName}"`);
-          console.log(`Headers:`, actualHeaders.slice(0, 10));
-          break;
-        }
+    let headerRowIndex = 0;
+    let actualHeaders = rows[0];
+    
+    // Check if this is a Google Form sheet by sheet name or by checking for metadata in row 1
+    const isFormSheet = sheetName.toLowerCase().includes('feedback') || 
+                       sheetName.toLowerCase().includes('form') ||
+                       sheetName.toLowerCase().includes('response');
+    
+    if (rows.length > 1) {
+      const firstRowKeys = rows[0].map(h => String(h || '').toLowerCase());
+      
+      // Check if first row looks like metadata (contains "Responder Link", "Edit Link", or other form metadata)
+      const hasMetadataKeys = firstRowKeys.some(k => 
+        k.includes('responder link') || 
+        k.includes('edit link') ||
+        k.includes('responder') ||
+        k.includes('edit') ||
+        (k === 'responder' && firstRowKeys.some(k2 => k2.includes('link')))
+      );
+      
+      // For form sheets OR if metadata detected, use row 2 as headers
+      if ((isFormSheet || hasMetadataKeys) && rows.length > 1) {
+        headerRowIndex = 1;
+        actualHeaders = rows[1].map((cell: any) => String(cell || '').trim());
+      } else {
+        // Otherwise use row 1 as headers
+        actualHeaders = rows[0].map((cell: any) => String(cell || '').trim());
       }
-    }
-    
-    if (headerRowIndex === -1 || actualHeaders.length === 0) {
-      console.log(`❌ No valid headers found in sheet "${sheetName}"`);
+    } else if (rows.length > 0) {
+      // Only one row, use it as headers
+      actualHeaders = rows[0].map((cell: any) => String(cell || '').trim());
+    } else {
+      // No rows at all
       return [];
     }
     
-    console.log(`📋 Headers for "${sheetName}":`, {
-      count: actualHeaders.length,
-      headers: actualHeaders.slice(0, 10),
-      columnH: actualHeaders[7] || 'NOT FOUND'
-    });
-    
-    const data: SheetData[] = [];
+    // Validate headers
+    if (!actualHeaders || actualHeaders.length === 0 || actualHeaders.every(h => !h || h.trim() === '')) {
+      return [];
+    }
 
     // Convert rows to objects using headers as keys
     // Start from after the header row
     const dataStartIndex = headerRowIndex + 1;
+    
     for (let i = dataStartIndex; i < rows.length; i++) {
       const row = rows[i];
       
@@ -160,19 +152,19 @@ export async function fetchSheetData(
       const rowData: SheetData = {};
 
       // Map each header to its corresponding cell value
-      // Also add column position info for columns with empty headers
       actualHeaders.forEach((header, index) => {
-        const cellValue = row[index];
-        const stringValue = (cellValue !== undefined && cellValue !== null) ? String(cellValue).trim() : '';
-        
         if (header && String(header).trim() !== '') {
-          // Add with header name as key
-          rowData[String(header)] = stringValue;
+          // Get the actual cell value for this row
+          const cellValue = row[index];
+          
+          // Convert to string and trim, or use empty string if null/undefined
+          if (cellValue !== undefined && cellValue !== null) {
+            const stringValue = String(cellValue).trim();
+            rowData[String(header)] = stringValue;
+          } else {
+            rowData[String(header)] = '';
+          }
         }
-        
-        // Always add column position info (e.g., _col0, _col1, etc.) for accessing by position
-        // This allows us to access column H (index 7) even if header is empty
-        rowData[`_col${index}`] = stringValue;
       });
 
       // Only add row if it has at least one non-empty value
@@ -187,14 +179,6 @@ export async function fetchSheetData(
         data.push(rowData);
       }
     }
-
-    console.log(`✅ Processed "${sheetName}":`, {
-      totalRowsProcessed: data.length,
-      sampleRow: data[0],
-      sampleRowCol7: data[0]?.['_col7']
-    });
-
-    return data;
 
     return data;
   } catch (error) {
@@ -220,20 +204,12 @@ export async function fetchAllSheets(
     let mentorFeedbacks: SheetData[] = [];
     let candidateFeedbacks: SheetData[] = [];
     let mentors: SheetData[] = [];
-    let mentees: SheetData[] = [];
+    let students: SheetData[] = [];
 
     if (feedbacksSpreadsheetId) {
-      [mentorFeedbacks, candidateFeedbacks, mentors, mentees] = await Promise.all([
-        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').then((data) => {
-          console.log('✅ Fetched Mentor Feedbacks sheet:', {
-            count: data.length,
-            firstRow: data[0],
-            firstRowKeys: data[0] ? Object.keys(data[0]) : [],
-            sample: data.slice(0, 2)
-          });
-          return data;
-        }).catch((err) => {
-          console.error('❌ Error fetching Mentor Feedbacks:', err.message);
+      [mentorFeedbacks, candidateFeedbacks, mentors, students] = await Promise.all([
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').catch((err) => {
+          console.error('Error fetching Mentor Feedbacks:', err.message);
           return [];
         }),
         fetchSheetData(feedbacksSpreadsheetId, 'Candidate feedback form filled by mentors').catch((err) => {
@@ -245,7 +221,7 @@ export async function fetchAllSheets(
           return [];
         }),
         fetchSheetData(feedbacksSpreadsheetId, 'Mentee Directory').catch((err) => {
-          console.error('Error fetching Mentee Directory:', err.message);
+          console.error('Error fetching Student Directory:', err.message);
           return [];
         }),
       ]);
@@ -253,10 +229,11 @@ export async function fetchAllSheets(
 
     return {
       sessions,
-      mentorFeedbacks, // Feedback from mentees about mentors
-      candidateFeedbacks, // Feedback from mentors about mentees
+      mentorFeedbacks, // Feedback from students about mentors
+      candidateFeedbacks, // Feedback from mentors about students
       mentors,
-      mentees,
+      students,
+      mentees: students, // Backward compatibility alias
     };
   } catch (error) {
     console.error('Error fetching sheets:', error);

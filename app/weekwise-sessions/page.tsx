@@ -25,9 +25,9 @@ interface WeekwiseStats {
   cancelled: number;
   // Detailed breakdown by actor / outcome
   pending: number;
-  menteeNoShow: number;
-  menteeCancelled: number;
-  menteeRescheduled: number;
+  studentNoShow: number;
+  studentCancelled: number;
+  studentRescheduled: number;
   mentorNoShow: number;
   mentorCancelled: number;
   mentorRescheduled: number;
@@ -36,7 +36,7 @@ interface WeekwiseStats {
 }
 
 export default function WeekwiseSessions() {
-  const { sessions, hasData, setSessions, setMentees } = useData();
+  const { sessions, hasData, setSessions, setStudents } = useData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
   const [isWeekwiseExpanded, setIsWeekwiseExpanded] = useState(false);
@@ -57,15 +57,15 @@ export default function WeekwiseSessions() {
       const result = await response.json();
 
       if (response.ok && result.success && result.data.sessions) {
-        const { parseSpreadsheetData, parseMenteeData } = await import('@/utils/metricsCalculator');
+        const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
         const parsedSessions = parseSpreadsheetData(
           result.data.sessions,
           result.data.mentorFeedbacks || [],
           result.data.candidateFeedbacks || []
         );
-        const parsedMentees = parseMenteeData(result.data.mentees || []);
+        const parsedStudents = parseStudentData(result.data.students || result.data.mentees || []);
         setSessions(parsedSessions);
-        setMentees(parsedMentees);
+        setStudents(parsedStudents);
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -130,9 +130,9 @@ export default function WeekwiseSessions() {
       let cancelled = 0;
 
       let pending = 0;
-      let menteeNoShow = 0;
-      let menteeCancelled = 0;
-      let menteeRescheduled = 0;
+      let studentNoShow = 0;
+      let studentCancelled = 0;
+      let studentRescheduled = 0;
       let mentorNoShow = 0;
       let mentorCancelled = 0;
       let mentorRescheduled = 0;
@@ -152,18 +152,18 @@ export default function WeekwiseSessions() {
           return;
         }
 
-        // Detailed mentee-side disruptions
-        if (status === 'mentee_no_show') {
-          menteeNoShow++;
+        // Detailed student-side disruptions
+        if (status === 'student_no_show') {
+          studentNoShow++;
           return;
         }
-        if (status === 'mentee_cancelled') {
-          menteeCancelled++;
+        if (status === 'student_cancelled') {
+          studentCancelled++;
           cancelled++;
           return;
         }
-        if (status === 'mentee_rescheduled') {
-          menteeRescheduled++;
+        if (status === 'student_rescheduled') {
+          studentRescheduled++;
           rescheduled++;
           return;
         }
@@ -213,9 +213,9 @@ export default function WeekwiseSessions() {
         rescheduled,
         cancelled,
         pending,
-        menteeNoShow,
-        menteeCancelled,
-        menteeRescheduled,
+        studentNoShow,
+        studentCancelled,
+        studentRescheduled,
         mentorNoShow,
         mentorCancelled,
         mentorRescheduled,
@@ -268,12 +268,12 @@ export default function WeekwiseSessions() {
       return feedbackStatus.charAt(0).toUpperCase() + feedbackStatus.slice(1).toLowerCase();
     }
     
-    // Fallback: Check menteeFeedback if column N is not available
-    if (!session.menteeFeedback || session.menteeFeedback === '' || session.menteeFeedback === 'N/A') {
+    // Fallback: Check studentFeedback if column N is not available
+    if (!session.studentFeedback || session.studentFeedback === '' || session.studentFeedback === 'N/A') {
       return 'Not Filled';
     }
     // Check if it's a valid number/rating
-    const feedbackValue = parseFloat(String(session.menteeFeedback).replace(/[^0-9.]/g, ''));
+    const feedbackValue = parseFloat(String(session.studentFeedback).replace(/[^0-9.]/g, ''));
     if (!isNaN(feedbackValue) && feedbackValue > 0) {
       return 'Filled';
     }
@@ -292,8 +292,8 @@ export default function WeekwiseSessions() {
       mentorEmail: string;
       pendingSessions: Array<{
         date: string;
-        menteeName: string;
-        menteeEmail: string;
+        studentName: string;
+        studentEmail: string;
         sessionStatus: string;
       }>;
     }>();
@@ -321,8 +321,8 @@ export default function WeekwiseSessions() {
           const mentorData = mentorMap.get(mentorEmail)!;
           mentorData.pendingSessions.push({
             date: session.date || '',
-            menteeName: session.menteeName || 'Unknown',
-            menteeEmail: session.menteeEmail || '',
+            studentName: session.studentName || 'Unknown',
+            studentEmail: session.studentEmail || '',
             sessionStatus: session.sessionStatus || '',
           });
         }
@@ -442,13 +442,13 @@ export default function WeekwiseSessions() {
                   Pending
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentee No Show
+                  Student No Show
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentee Cancelled
+                  Student Cancelled
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentee Rescheduled
+                  Student Rescheduled
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                   Mentor No Show
@@ -644,7 +644,7 @@ export default function WeekwiseSessions() {
                   Mentor Name
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                  Mentee Name
+                  Student Name
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                   Session Date
@@ -694,7 +694,7 @@ export default function WeekwiseSessions() {
 
                     return (
                       <tr
-                        key={`${session.mentorEmail}-${session.menteeEmail}-${session.date}-${index}`}
+                        key={`${session.mentorEmail}-${session.studentEmail}-${session.date}-${index}`}
                         className="transition-colors"
                         style={{ borderColor: '#3A5A5A' }}
                         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
@@ -713,10 +713,10 @@ export default function WeekwiseSessions() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex flex-col">
                             <span className="text-sm font-medium text-white">
-                              {session.menteeName || 'N/A'}
+                              {session.studentName || 'N/A'}
                             </span>
                             <span className="text-xs text-gray-400">
-                              {session.menteeEmail || 'N/A'}
+                              {session.studentEmail || 'N/A'}
                             </span>
                           </div>
                         </td>
@@ -842,7 +842,7 @@ export default function WeekwiseSessions() {
                           const sessionDate = parseSessionDate(session.date);
                           return (
                             <div
-                              key={`${session.date}-${session.menteeEmail}-${sessionIndex}`}
+                              key={`${session.date}-${session.studentEmail}-${sessionIndex}`}
                               className="flex items-center gap-3 text-sm"
                             >
                               <span className="text-gray-300">
@@ -850,10 +850,10 @@ export default function WeekwiseSessions() {
                               </span>
                               <span className="text-gray-400">•</span>
                               <span className="text-white font-medium">
-                                {session.menteeName}
+                                {session.studentName}
                               </span>
                               <span className="text-xs text-gray-400">
-                                ({session.menteeEmail})
+                                ({session.studentEmail})
                               </span>
                             </div>
                           );

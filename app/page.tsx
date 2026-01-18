@@ -3,13 +3,13 @@
 import React, { useState } from 'react';
 import { GoogleSheetsAutoConnect } from '@/components/GoogleSheetsAutoConnect';
 import { useData } from '@/context/DataContext';
-import { parseSpreadsheetData, parseMenteeData } from '@/utils/metricsCalculator';
+import { parseSpreadsheetData, parseStudentData } from '@/utils/metricsCalculator';
 import { getApiUrl } from '@/utils/api';
 import { CheckCircle, TrendingUp, Users, UserCheck } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
-  const { sessions, setSessions, hasData, mentees, setMentees, setCandidateFeedbacks, setMentorFeedbacks } = useData();
+  const { sessions, setSessions, hasData, students, setStudents, setCandidateFeedbacks, setMentorFeedbacks } = useData();
   const [autoConnecting, setAutoConnecting] = useState(true);
   const hasLoadedRef = React.useRef(false);
 
@@ -17,16 +17,16 @@ export default function Home() {
     sessions: any[]; 
     mentorFeedbacks?: any[]; 
     candidateFeedbacks?: any[];
-    mentees?: any[];
+    students?: any[];
   }) => {
     const parsedSessions = parseSpreadsheetData(
       data.sessions, 
       data.mentorFeedbacks, 
       data.candidateFeedbacks
     );
-    const parsedMentees = parseMenteeData(data.mentees || []);
+    const parsedStudents = parseStudentData(data.students || []);
     setSessions(parsedSessions);
-    setMentees(parsedMentees);
+    setStudents(parsedStudents);
     setCandidateFeedbacks(data.candidateFeedbacks || []);
     setMentorFeedbacks(data.mentorFeedbacks || []);
     setAutoConnecting(false);
@@ -79,7 +79,7 @@ export default function Home() {
             sessions: result.data.sessions,
             mentorFeedbacks: result.data.mentorFeedbacks || [],
             candidateFeedbacks: result.data.candidateFeedbacks || [],
-            mentees: result.data.mentees || [],
+            students: result.data.students || result.data.mentees || [],
           });
         } else {
           setAutoConnecting(false);
@@ -91,7 +91,7 @@ export default function Home() {
     };
 
     autoConnect();
-  }, [hasData, sessions.length, setSessions, setMentees]); // Include all dependencies
+  }, [hasData, sessions.length, setSessions, setStudents]); // Include all dependencies
 
   return (
     <div className="space-y-8">
@@ -101,7 +101,7 @@ export default function Home() {
           Performance Dashboard
         </h1>
         <p className="text-lg text-gray-300 max-w-2xl mx-auto">
-          Comprehensive analytics platform for mentorship sessions. Connect your Google Sheets to view detailed insights on mentors and mentees.
+          Comprehensive analytics platform for mentorship sessions. Connect your Google Sheets to view detailed insights on mentors and students.
         </p>
       </div>
 
@@ -132,15 +132,17 @@ export default function Home() {
         </div>
       )}
 
-      {/* Success State */}
-      {hasData && (
+      {/* Success State - Show links even if parsed data is empty, as long as API call succeeded */}
+      {!autoConnecting && (
         <div className="max-w-2xl mx-auto">
-          <div className="mt-6 p-6 border rounded-xl" style={{ backgroundColor: '#2A4A4A', borderColor: '#22C55E' }}>
+          <div className="mt-6 p-6 border rounded-xl" style={{ backgroundColor: '#2A4A4A', borderColor: hasData ? '#22C55E' : '#F59E0B' }}>
             <h3 className="text-lg font-semibold text-white mb-2">
-              Data Loaded Successfully
+              {hasData ? 'Data Loaded Successfully' : 'Connection Successful - No Valid Data Found'}
             </h3>
             <p className="text-gray-300 mb-4">
-              {sessions.length} sessions available for analysis
+              {hasData 
+                ? `${sessions.length} sessions available for analysis`
+                : 'Google Sheets connected successfully, but no valid session data was found. Please check that your sheet has data with Date, Mentor Email, and Student Email fields filled in.'}
             </p>
             <div className="flex gap-4">
               <Link
@@ -154,7 +156,7 @@ export default function Home() {
                 View Mentor Dashboard
               </Link>
               <Link
-                href="/mentee-dashboard"
+                href="/student-dashboard"
                 className="flex-1 flex items-center justify-center px-4 py-3 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
                 style={{ backgroundColor: '#CAE8A0', color: '#1A3636' }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#B8D88A'}
@@ -188,10 +190,10 @@ export default function Home() {
             <Users className="w-6 h-6 text-white" />
           </div>
           <h3 className="text-xl font-bold text-white mb-2">
-            Mentee Insights
+            Student Insights
           </h3>
           <p className="text-gray-300">
-            Analyze mentee engagement with session statistics, candidate behavior, 
+            Analyze student engagement with session statistics, candidate behavior, 
             feedback scores, and performance percentiles.
           </p>
         </div>
@@ -222,7 +224,7 @@ export default function Home() {
             </li>
             <li className="flex items-start">
               <span className="font-semibold mr-2">5.</span>
-              <span>Navigate to Mentor or Mentee Dashboard to view analytics</span>
+              <span>Navigate to Mentor or Student Dashboard to view analytics</span>
             </li>
           </ol>
         </div>

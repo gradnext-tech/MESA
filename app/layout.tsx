@@ -18,6 +18,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Performance Dashboard - Mentor & Mentee Analytics",
   description: "Analytics dashboard for mentorship program",
+  icons: {
+    icon: [
+      { url: '/mesadashboard/favicon-16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/mesadashboard/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/mesadashboard/icon.jpg', sizes: '192x192', type: 'image/jpeg' },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -27,6 +34,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" type="image/png" sizes="32x32" href="/mesadashboard/favicon-32.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/mesadashboard/favicon-16.png" />
+        <link rel="icon" type="image/jpeg" href="/mesadashboard/icon.jpg" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

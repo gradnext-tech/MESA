@@ -4,19 +4,20 @@ export interface Session {
   sNo: number | null; // Can be null if not provided in sheet
   mentorName: string;
   mentorEmail: string;
-  menteeName: string;
-  menteeEmail: string;
-  menteePhone: string;
+  studentName: string;
+  studentEmail: string;
+  studentPhone: string;
   date: string;
   time: string;
   inviteTitle: string;
   invitationStatus: string;
   mentorConfirmationStatus: string;
-  menteeConfirmationStatus: string;
+  studentConfirmationStatus: string;
   sessionStatus: string;
   mentorFeedback: number | string;
-  menteeFeedback: number | string;
+  studentFeedback: number | string;
   mentorFeedbackStatus: string; // Column N from MESA sheet - feedback status (Filled/Not Filled)
+  sessionType: string; // Column R from MESA sheet - Session Type (Assessment/Practice)
   comments: string;
   paymentStatus: string;
 }
@@ -37,7 +38,7 @@ export interface Mentor {
   linkedinProfile: string;
 }
 
-export interface Mentee {
+export interface Student {
   srNo: number;
   name: string;
   phoneNumber: string;
@@ -50,7 +51,7 @@ export interface Mentee {
 export interface SpreadsheetData {
   sessions: Session[];
   mentors: Mentor[];
-  mentees: Mentee[];
+  students: Student[];
 }
 
 // Mentor Dashboard Metrics
@@ -65,8 +66,8 @@ export interface MentorMetrics {
   feedbacksFilled: number;
 }
 
-// Mentee Dashboard Metrics
-export interface MenteeMetrics {
+// Student Dashboard Metrics
+export interface StudentMetrics {
   totalSessionsDone: number;
   avgDailySessions: number;
   candidatesBooking: number;
@@ -80,7 +81,7 @@ export interface MenteeMetrics {
   top10ByRating: CandidateSessionStats[];
   bottom10Feedback: CandidateSessionStats[];
   bottom25Feedback: CandidateSessionStats[];
-  candidatesNoSessions: Mentee[];
+  candidatesNoSessions: Student[];
   totalSessionsCancelled: number;
   totalSessionsRescheduled: number;
   totalNoShows: number;

@@ -8,7 +8,7 @@ function getBasePath(): string {
   }
   
   const currentPath = window.location.pathname;
-  const knownRoutes = ['mentor-dashboard', 'mentee-dashboard', 'weekwise-sessions', 'login'];
+  const knownRoutes = ['mentor-dashboard', 'student-dashboard', 'weekwise-sessions', 'login'];
   
   if (currentPath && currentPath !== '/') {
     const pathParts = currentPath.split('/').filter(Boolean);
@@ -47,7 +47,19 @@ export function getApiUrl(path: string): string {
   
   // Remove leading slash if present
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-  const basePath = getBasePath();
+  
+  // Get basePath from Next.js config or detect from current URL
+  // In development with basePath, Next.js serves the app at the basePath
+  let basePath = '';
+  
+  // Try to get basePath from the current pathname
+  const currentPath = window.location.pathname;
+  if (currentPath.startsWith('/mesadashboard')) {
+    basePath = '/mesadashboard';
+  } else {
+    // Fallback: detect from URL structure
+    basePath = getBasePath();
+  }
   
   // Construct the full path with basePath
   const fullPath = basePath + '/' + cleanPath;
