@@ -686,7 +686,7 @@ export default function StudentDashboard() {
         setMentorFeedbacks(result.data.mentorFeedbacks || []);
       }
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      // Silent error handling
     } finally {
       setIsRefreshing(false);
     }

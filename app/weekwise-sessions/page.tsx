@@ -68,7 +68,7 @@ export default function WeekwiseSessions() {
         setStudents(parsedStudents);
       }
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      // Silent error handling
     } finally {
       setIsRefreshing(false);
     }
@@ -538,17 +538,17 @@ export default function WeekwiseSessions() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-purple-300">
-                        {stat.menteeNoShow}
+                        {stat.studentNoShow}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-purple-300">
-                        {stat.menteeCancelled}
+                        {stat.studentCancelled}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-purple-300">
-                        {stat.menteeRescheduled}
+                        {stat.studentRescheduled}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

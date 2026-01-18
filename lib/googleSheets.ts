@@ -19,9 +19,6 @@ function getGoogleSheetsClient() {
   try {
     credentials = JSON.parse(credentialsString);
   } catch (error) {
-    console.error('Failed to parse service account credentials:', error);
-    console.error('Credentials string length:', credentialsString.length);
-    console.error('First 100 characters:', credentialsString.substring(0, 100));
     throw new Error('Invalid JSON in GOOGLE_SERVICE_ACCOUNT_CREDENTIALS. Make sure it\'s a valid JSON string on a single line.');
   }
 
@@ -57,8 +54,6 @@ export async function fetchSheetData(
     );
 
     if (!sheet || !sheet.properties?.title) {
-      const availableSheets = spreadsheet.data.sheets?.map(s => s.properties?.title).join(', ') || 'none';
-      console.error(`❌ Sheet "${sheetName}" not found in spreadsheet. Available sheets: ${availableSheets}`);
       return [];
     }
     
@@ -182,7 +177,6 @@ export async function fetchSheetData(
 
     return data;
   } catch (error) {
-    console.error('Error fetching sheet data:', error);
     throw error;
   }
 }
@@ -208,22 +202,10 @@ export async function fetchAllSheets(
 
     if (feedbacksSpreadsheetId) {
       [mentorFeedbacks, candidateFeedbacks, mentors, students] = await Promise.all([
-        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').catch((err) => {
-          console.error('Error fetching Mentor Feedbacks:', err.message);
-          return [];
-        }),
-        fetchSheetData(feedbacksSpreadsheetId, 'Candidate feedback form filled by mentors').catch((err) => {
-          console.error('Error fetching Candidate feedback form filled by mentors:', err.message);
-          return [];
-        }),
-        fetchSheetData(feedbacksSpreadsheetId, 'Mentor directory').catch((err) => {
-          console.error('Error fetching Mentor directory:', err.message);
-          return [];
-        }),
-        fetchSheetData(feedbacksSpreadsheetId, 'Mentee Directory').catch((err) => {
-          console.error('Error fetching Student Directory:', err.message);
-          return [];
-        }),
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentor Feedbacks filled by candidate').catch(() => []),
+        fetchSheetData(feedbacksSpreadsheetId, 'Candidate feedback form filled by mentors').catch(() => []),
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentor directory').catch(() => []),
+        fetchSheetData(feedbacksSpreadsheetId, 'Mentee Directory').catch(() => []),
       ]);
     }
 
@@ -236,7 +218,19 @@ export async function fetchAllSheets(
       mentees: students, // Backward compatibility alias
     };
   } catch (error) {
-    console.error('Error fetching sheets:', error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch mentor credentials from Mentor directory sheet
+ * @param feedbacksSpreadsheetId - Spreadsheet ID for feedbacks (contains "Mentor directory" sheet)
+ */
+export async function fetchMentorCredentials(feedbacksSpreadsheetId: string) {
+  try {
+    const mentors = await fetchSheetData(feedbacksSpreadsheetId, 'Mentor directory');
+    return mentors;
+  } catch (error) {
     throw error;
   }
 }
@@ -254,7 +248,6 @@ export async function validateSheetsAccess(spreadsheetId: string): Promise<boole
 
     return !!response.data;
   } catch (error) {
-    console.error('Error validating sheets access:', error);
     return false;
   }
 }

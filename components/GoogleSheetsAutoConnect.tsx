@@ -30,7 +30,6 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
 
     try {
       const apiUrl = getApiUrl('api/sheets');
-      console.log('Fetching API from:', apiUrl, 'Current pathname:', typeof window !== 'undefined' ? window.location.pathname : 'N/A');
       
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -43,8 +42,6 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
       // Check if response is actually JSON
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('Non-JSON response received:', text.substring(0, 200));
         throw new Error(`Expected JSON but got ${contentType}. The API endpoint may not be accessible.`);
       }
 
@@ -67,7 +64,6 @@ export const GoogleSheetsAutoConnect: React.FC<GoogleSheetsAutoConnectProps> = (
         throw new Error('No session data found in the spreadsheet');
       }
     } catch (err: any) {
-      console.error('Error connecting to Google Sheets:', err);
       setError(err.message || 'Failed to connect to Google Sheets');
       onError?.();
     } finally {

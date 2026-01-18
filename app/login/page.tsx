@@ -17,7 +17,7 @@ export default function LoginPage() {
   useEffect(() => {
     if (isAuthenticated) {
       if (accessLevel === 'mesa') {
-        router.push('/mentee-dashboard');
+        router.push('/student-dashboard');
       } else {
         router.push('/');
       }
@@ -35,10 +35,14 @@ export default function LoginPage() {
       return;
     }
 
-    const success = login(email.trim(), password);
-    
-    if (!success) {
-      setError('Invalid email or password. Please try again.');
+    try {
+      const success = await login(email.trim(), password);
+      
+      if (!success) {
+        setError('Invalid email or password. Please try again.');
+      }
+    } catch (error) {
+      setError('An error occurred. Please try again.');
     }
 
     setIsLoading(false);
@@ -142,6 +146,20 @@ export default function LoginPage() {
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+
+          {/* Footer */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-400">
+              Mentor without a password?{' '}
+              <a 
+                href="set-password" 
+                className="font-medium hover:underline transition-colors"
+                style={{ color: '#22C55E' }}
+              >
+                Set up your account
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </div>

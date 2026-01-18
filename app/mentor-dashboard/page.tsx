@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useData } from '@/context/DataContext';
+import { useAuth } from '@/context/AuthContext';
 import { calculateMentorMetrics, calculateMentorSessionStats, normalizeSessionStatus, parseSessionDate } from '@/utils/metricsCalculator';
 import { getApiUrl } from '@/utils/api';
 import { MetricCard } from '@/components/MetricCard';
@@ -211,6 +212,7 @@ function getDateFromWeek(year: number, week: number): Date {
 
 export default function MentorDashboard() {
   const { sessions, hasData, setSessions, setStudents, mentorFeedbacks, setMentorFeedbacks, setCandidateFeedbacks } = useData();
+  const { accessLevel, email: loggedInEmail } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedMentor, setSelectedMentor] = useState<MentorMetrics | null>(null);
@@ -218,6 +220,9 @@ export default function MentorDashboard() {
   const [weekFilter, setWeekFilter] = useState<Date | undefined>(undefined);
   const [monthFilter, setMonthFilter] = useState<string>(''); // Format: YYYY-MM
   const [selectedMentorFilter, setSelectedMentorFilter] = useState<string[]>([]); // Multi-select: array of emails
+  
+  // Check if user is a mentor (for filtering)
+  const isMentorUser = accessLevel === 'mentor';
 
   // Auto-fetch data if not available (when navigating directly to this page)
   React.useEffect(() => {
@@ -234,14 +239,6 @@ export default function MentorDashboard() {
 
           const result = await response.json();
 
-          console.log('API Response:', {
-            success: result.success,
-            hasSessions: !!result.data?.sessions,
-            hasMentorFeedbacks: !!result.data?.mentorFeedbacks,
-            mentorFeedbacksLength: result.data?.mentorFeedbacks?.length,
-            mentorFeedbacksSample: result.data?.mentorFeedbacks?.slice(0, 2)
-          });
-
           if (response.ok && result.success && result.data.sessions) {
             const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
             const parsedSessions = parseSpreadsheetData(
@@ -255,7 +252,6 @@ export default function MentorDashboard() {
             setCandidateFeedbacks(result.data.candidateFeedbacks || []);
             // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
             const mentorFb = Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : [];
-            console.log('Setting mentorFeedbacks:', mentorFb.length);
             setMentorFeedbacks(mentorFb);
           }
         } catch (error) {
@@ -269,6 +265,15 @@ export default function MentorDashboard() {
   // Filter sessions based on week/month/mentor filters
   const filteredSessions = useMemo(() => {
     let filtered = sessions;
+    
+    // If user is a mentor, filter to show only their sessions
+    if (isMentorUser && loggedInEmail) {
+      const normalizedLoggedInEmail = loggedInEmail.trim().toLowerCase();
+      filtered = filtered.filter(s => {
+        const sessionEmail = (s.mentorEmail || '').trim().toLowerCase();
+        return sessionEmail === normalizedLoggedInEmail;
+      });
+    }
     
     // Apply week filter (takes precedence over month filter)
     if (weekFilter) {
@@ -304,8 +309,8 @@ export default function MentorDashboard() {
       });
     }
     
-    // Apply mentor filter
-    if (selectedMentorFilter.length > 0) {
+    // Apply mentor filter (only for admin users)
+    if (!isMentorUser && selectedMentorFilter.length > 0) {
       const normalizedFilterEmails = selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filtered = filtered.filter(s => {
         const sessionEmail = (s.mentorEmail || '').trim().toLowerCase();
@@ -314,7 +319,7 @@ export default function MentorDashboard() {
     }
     
     return filtered;
-  }, [sessions, weekFilter, monthFilter, selectedMentorFilter]);
+  }, [sessions, weekFilter, monthFilter, selectedMentorFilter, isMentorUser, loggedInEmail]);
 
   // Filter mentorFeedbacks based on the same filters (for rating calculation)
   // Directly filter the Mentor Feedbacks filled by candidate sheet
@@ -324,8 +329,9 @@ export default function MentorDashboard() {
       return [];
     }
 
-    // If no filters are applied, return all mentorFeedbacks
-    if (!weekFilter && !monthFilter && selectedMentorFilter.length === 0) {
+    // If no filters are applied AND user is not a mentor, return all mentorFeedbacks
+    // For mentor users, we always need to filter by their email
+    if (!weekFilter && !monthFilter && selectedMentorFilter.length === 0 && !isMentorUser) {
       return mentorFeedbacks;
     }
 
@@ -509,8 +515,15 @@ export default function MentorDashboard() {
     }
 
     // Apply mentor filter
-    if (selectedMentorFilter.length > 0) {
-      const normalizedFilterEmails = selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+    // For mentor users, automatically filter by their email even if selectedMentorFilter is empty
+    const mentorEmailsToFilter = isMentorUser && loggedInEmail 
+      ? [loggedInEmail.trim().toLowerCase()]
+      : selectedMentorFilter.length > 0 
+        ? selectedMentorFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e)
+        : [];
+    
+    if (mentorEmailsToFilter.length > 0) {
+      const normalizedFilterEmails = mentorEmailsToFilter;
       
       // Build a comprehensive map of mentor names to emails from all sessions
       const mentorNameEmailMap = new Map<string, string[]>();
@@ -550,16 +563,12 @@ export default function MentorDashboard() {
     }
     
     return filtered;
-  }, [mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, sessions, filteredSessions]);
+  }, [mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, sessions, filteredSessions, isMentorUser, loggedInEmail]);
 
   const mentorMetrics = useMemo(() => {
     if (!hasData) {
       return [];
     }
-    
-    console.log('=== mentorMetrics useMemo ===');
-    console.log('mentorFeedbacks from context:', mentorFeedbacks);
-    console.log('mentorFeedbacks length:', mentorFeedbacks?.length);
     
     // For rating calculation, always pass mentorFeedbacks (even if empty) so function can handle it
     // Priority: filteredMentorFeedbacks (when filters applied) > mentorFeedbacks
@@ -568,32 +577,27 @@ export default function MentorDashboard() {
     // Always use mentorFeedbacks if it's an array (even if empty)
     if (Array.isArray(mentorFeedbacks)) {
       if (mentorFeedbacks.length > 0) {
-        console.log('✅ Using mentorFeedbacks, count:', mentorFeedbacks.length);
-        // We have mentorFeedbacks - use filtered version if filters are applied, otherwise use all
-        if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+        // For mentor users, always use filtered feedbacks (filtered by their email)
+        // For admins, use filtered version if filters are applied, otherwise use all
+        if (isMentorUser || weekFilter || monthFilter || selectedMentorFilter.length > 0) {
           // Filters are applied - use filtered feedbacks (even if empty, it means no matches)
           feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : mentorFeedbacks;
-          console.log('Using filtered feedbacks, count:', feedbacksForRating.length);
         } else {
-          // No filters - use all mentorFeedbacks
+          // No filters and admin user - use all mentorFeedbacks
           feedbacksForRating = mentorFeedbacks;
-          console.log('Using all mentorFeedbacks, count:', feedbacksForRating.length);
         }
       } else {
-        console.log('⚠️ mentorFeedbacks is empty array');
         feedbacksForRating = [];
       }
     } else {
-      console.log('❌ mentorFeedbacks is not an array');
       feedbacksForRating = [];
     }
     
     // For other metrics (sessions done, cancelled, etc.), use filtered sessions
     const metrics = calculateMentorMetrics(filteredSessions, sessions, feedbacksForRating);
     
-    console.log('Returning metrics, count:', metrics.length);
     return metrics;
-  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter]);
+  }, [filteredSessions, sessions, hasData, filteredMentorFeedbacks, mentorFeedbacks, weekFilter, monthFilter, selectedMentorFilter, isMentorUser]);
 
   const filteredMentors = useMemo(() => {
     if (!searchTerm) return mentorMetrics;
@@ -634,13 +638,6 @@ export default function MentorDashboard() {
 
       const result = await response.json();
 
-      console.log('Refresh API Response:', {
-        success: result.success,
-        hasSessions: !!result.data?.sessions,
-        hasMentorFeedbacks: !!result.data?.mentorFeedbacks,
-        mentorFeedbacksLength: result.data?.mentorFeedbacks?.length
-      });
-
       if (response.ok && result.success && result.data.sessions) {
         const { parseSpreadsheetData, parseStudentData } = await import('@/utils/metricsCalculator');
         const parsedSessions = parseSpreadsheetData(
@@ -654,11 +651,10 @@ export default function MentorDashboard() {
         setCandidateFeedbacks(result.data.candidateFeedbacks || []);
         // Always set mentorFeedbacks - even if empty array, this ensures the state is properly initialized
         const mentorFb = Array.isArray(result.data.mentorFeedbacks) ? result.data.mentorFeedbacks : [];
-        console.log('Setting mentorFeedbacks on refresh:', mentorFb.length);
         setMentorFeedbacks(mentorFb);
       }
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      // Silent error handling
     } finally {
       setIsRefreshing(false);
     }
@@ -714,12 +710,24 @@ export default function MentorDashboard() {
       };
     }
 
-    // Calculate average rating from ALL individual feedbacks (not average of mentor averages)
-    // This gives the true average across all feedbacks
+    // Calculate average rating from individual feedbacks
+    // For mentors: use filteredMentorFeedbacks (their own feedbacks)
+    // For admins: use all mentorFeedbacks
     const allRatings: number[] = [];
     
-    // Collect all individual ratings from mentorFeedbacks
-    if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
+    // Use filtered feedbacks if mentor user (even if empty array), otherwise use all feedbacks
+    let feedbacksToUse: any[] = [];
+    if (isMentorUser) {
+      // For mentor users, ALWAYS use filteredMentorFeedbacks (even if empty)
+      // This ensures they only see their own ratings
+      feedbacksToUse = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : [];
+    } else {
+      // For admins, use all mentorFeedbacks
+      feedbacksToUse = Array.isArray(mentorFeedbacks) ? mentorFeedbacks : [];
+    }
+    
+    // Collect all individual ratings from feedbacks
+    if (Array.isArray(feedbacksToUse) && feedbacksToUse.length > 0) {
       const ratingColumnNames = [
         'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?',
         'On a scale of 1 to 5',
@@ -729,7 +737,7 @@ export default function MentorDashboard() {
         'rating'
       ];
       
-      mentorFeedbacks.forEach((feedback) => {
+      feedbacksToUse.forEach((feedback) => {
         let ratingValue = null;
         
         // Try to get by column header name first
@@ -761,15 +769,6 @@ export default function MentorDashboard() {
     const avgRating = allRatings.length > 0
       ? allRatings.reduce((sum, r) => sum + r, 0) / allRatings.length
       : 0;
-    
-    // Debug logging
-    console.log('📊 Aggregate Average Rating Calculation:', {
-      totalMentors: mentorMetrics.length,
-      totalFeedbacks: allRatings.length,
-      allRatings: allRatings,
-      sumOfRatings: allRatings.reduce((sum, r) => sum + r, 0),
-      calculatedAverage: avgRating
-    });
 
     return {
       totalMentors: mentorMetrics.length,
@@ -789,7 +788,7 @@ export default function MentorDashboard() {
         0
       ),
     };
-  }, [mentorMetrics]);
+  }, [mentorMetrics, isMentorUser, filteredMentorFeedbacks, mentorFeedbacks]);
 
   // Chart data
   const topMentorsData = useMemo(() => {
@@ -839,12 +838,13 @@ export default function MentorDashboard() {
     
     // First, check if we have any mentorFeedbacks at all
     if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
-      // We have mentorFeedbacks - use filtered version if filters are applied, otherwise use all
-      if (weekFilter || monthFilter || selectedMentorFilter.length > 0) {
+      // For mentor users, always use filtered feedbacks (filtered by their email)
+      // For admins, use filtered version if filters are applied, otherwise use all
+      if (isMentorUser || weekFilter || monthFilter || selectedMentorFilter.length > 0) {
         // Filters are applied - use filtered feedbacks (even if empty, it means no matches)
         feedbacksForRating = Array.isArray(filteredMentorFeedbacks) ? filteredMentorFeedbacks : mentorFeedbacks;
       } else {
-        // No filters - use all mentorFeedbacks
+        // No filters and admin user - use all mentorFeedbacks
         feedbacksForRating = mentorFeedbacks;
       }
     }
@@ -852,7 +852,7 @@ export default function MentorDashboard() {
     
     const stats = calculateMentorSessionStats(filteredSessions, weekFilter, monthFilter || undefined, mentorFilter, sessions, feedbacksForRating);
     return stats;
-  }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks, mentorFeedbacks]);
+  }, [filteredSessions, sessions, hasData, weekFilter, monthFilter, selectedMentorFilter, filteredMentorFeedbacks, mentorFeedbacks, isMentorUser]);
 
   if (!hasData) {
     return (
@@ -894,9 +894,14 @@ export default function MentorDashboard() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">Mentor Dashboard</h1>
+            <h1 className="text-3xl font-bold text-white">
+              {isMentorUser ? 'My Performance Dashboard' : 'Mentor Dashboard'}
+            </h1>
             <p className="text-gray-300 mt-1">
-              Performance metrics for {aggregateMetrics.totalMentors} mentors
+              {isMentorUser 
+                ? `Your personal statistics and performance metrics`
+                : `Performance metrics for ${aggregateMetrics.totalMentors} mentors`
+              }
             </p>
           </div>
           <button
@@ -997,15 +1002,17 @@ export default function MentorDashboard() {
               </>
             )}
           </div>
-          {/* Mentor Filter - Multi-select */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-300 whitespace-nowrap">Mentor:</label>
-            <MentorMultiSelect
-              mentors={uniqueMentors}
-              selectedMentors={selectedMentorFilter}
-              onChange={setSelectedMentorFilter}
-            />
-          </div>
+          {/* Mentor Filter - Multi-select (only show for admin users) */}
+          {!isMentorUser && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-300 whitespace-nowrap">Mentor:</label>
+              <MentorMultiSelect
+                mentors={uniqueMentors}
+                selectedMentors={selectedMentorFilter}
+                onChange={setSelectedMentorFilter}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1016,46 +1023,47 @@ export default function MentorDashboard() {
           value={aggregateMetrics.avgRating > 0 ? aggregateMetrics.avgRating.toFixed(2) : 'N/A'}
           icon={Star}
           iconColor="text-[#22C55E]"
-          subtitle="Across all mentors"
+          subtitle={isMentorUser ? "Your average rating from students" : "Across all sessions"}
         />
         <MetricCard
           title="Total Sessions"
           value={aggregateMetrics.totalSessions}
           icon={CheckCircle}
           iconColor="text-[#22C55E]"
-          subtitle="Completed sessions"
+          subtitle={isMentorUser ? "Your completed sessions" : "Completed sessions"}
         />
         <MetricCard
           title="Average Daily Sessions"
           value={avgDailyAndWeeklySessions.avgDailySessions > 0 ? avgDailyAndWeeklySessions.avgDailySessions.toFixed(2) : '0.00'}
           icon={Calendar}
           iconColor="text-[#22C55E]"
-          subtitle="Sessions per day"
+          subtitle={isMentorUser ? "Your sessions per day" : "Sessions per day"}
         />
         <MetricCard
           title="Average Weekly Sessions"
           value={avgDailyAndWeeklySessions.avgWeeklySessions > 0 ? avgDailyAndWeeklySessions.avgWeeklySessions.toFixed(2) : '0.00'}
           icon={TrendingUp}
           iconColor="text-[#22C55E]"
-          subtitle="Sessions per week"
+          subtitle={isMentorUser ? "Your sessions per week" : "Sessions per week"}
         />
         <MetricCard
           title="Cancelled/No-Show"
           value={aggregateMetrics.totalCancelled + aggregateMetrics.totalNoShow}
           icon={XCircle}
           iconColor="text-red-400"
-          subtitle="Total disruptions"
+          subtitle={isMentorUser ? "Your disruptions" : "Total disruptions"}
         />
         <MetricCard
           title="Feedbacks Not Filled"
           value={aggregateMetrics.totalFeedbacksNotFilled}
           icon={MessageSquare}
           iconColor="text-yellow-400"
-          subtitle="Completed sessions without feedback"
+          subtitle={isMentorUser ? "Your sessions without feedback" : "Completed sessions without feedback"}
         />
       </div>
 
-      {/* Top Mentors by Rating - Horizontal Bar Chart Style */}
+      {/* Top Mentors by Rating - Horizontal Bar Chart Style (Admin only) */}
+      {!isMentorUser && (
       <div className="rounded-xl shadow-lg border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
         <div className="p-6 border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
           <div className="flex items-center gap-3">
@@ -1166,8 +1174,10 @@ export default function MentorDashboard() {
           )}
         </div>
       </div>
+      )}
 
-      {/* Charts */}
+      {/* Charts (Admin only) */}
+      {!isMentorUser && (
       <div className="grid grid-cols-1 gap-6">
         {/* Top Mentors Bar Chart */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
@@ -1193,11 +1203,14 @@ export default function MentorDashboard() {
           </ResponsiveContainer>
         </div>
         </div>
+      )}
 
       {/* Mentor Session Statistics Table */}
       <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
         <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
-          <h3 className="text-lg font-semibold text-white">Mentor Session Statistics</h3>
+          <h3 className="text-lg font-semibold text-white">
+            {isMentorUser ? 'My Session Statistics' : 'Mentor Session Statistics'}
+          </h3>
         </div>
 
         <div className="overflow-x-auto">

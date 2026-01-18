@@ -56,7 +56,6 @@ export default function Home() {
     const autoConnect = async () => {
       try {
         const apiUrl = getApiUrl('api/sheets');
-        console.log('Fetching API from:', apiUrl, 'Current pathname:', typeof window !== 'undefined' ? window.location.pathname : 'N/A');
         
         const response = await fetch(apiUrl, {
           method: 'POST',
@@ -67,8 +66,6 @@ export default function Home() {
         });
 
         if (!response.ok) {
-          const text = await response.text();
-          console.error('API Error Response:', text);
           throw new Error(`API request failed: ${response.status} ${response.statusText}`);
         }
 
@@ -85,7 +82,6 @@ export default function Home() {
           setAutoConnecting(false);
         }
       } catch (error) {
-        console.error('Error in autoConnect:', error);
         setAutoConnecting(false);
       }
     };

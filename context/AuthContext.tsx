@@ -2,14 +2,15 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { getApiUrl } from '@/utils/api';
 
-export type AccessLevel = 'admin' | 'mesa' | null;
+export type AccessLevel = 'admin' | 'mesa' | 'mentor' | null;
 
 interface AuthContextType {
   isAuthenticated: boolean;
   accessLevel: AccessLevel;
   email: string | null;
-  login: (email: string, password: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -23,12 +24,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Check for existing session on mount
+  // Check for existing session on mount and validate expiration
   useEffect(() => {
     const storedAuth = localStorage.getItem('auth');
     if (storedAuth) {
       try {
         const auth = JSON.parse(storedAuth);
+        // Check if session has expired
+        if (auth.expiresAt && Date.now() > auth.expiresAt) {
+          localStorage.removeItem('auth');
+          setIsLoading(false);
+          return;
+        }
         setIsAuthenticated(true);
         setAccessLevel(auth.accessLevel);
         setEmail(auth.email);
@@ -46,8 +53,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedAuth = localStorage.getItem('auth');
     const auth = storedAuth ? JSON.parse(storedAuth) : null;
 
-    // If not authenticated and not on login page, redirect to login
-    if (!auth && pathname !== '/login') {
+    // Public pages that don't require authentication
+    const publicPages = ['/login', '/set-password'];
+    const isPublicPage = publicPages.includes(pathname);
+
+    // If not authenticated and not on a public page, redirect to login
+    if (!auth && !isPublicPage) {
       router.push('/login');
       return;
     }
@@ -58,8 +69,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // MESA users can only access student dashboard
       if (userAccessLevel === 'mesa') {
-        if (pathname !== '/mentee-dashboard' && pathname !== '/login') {
-          router.push('/mentee-dashboard');
+        if (pathname !== '/student-dashboard' && pathname !== '/login') {
+          router.push('/student-dashboard');
+        }
+      }
+      // Mentor users can only access mentor dashboard
+      else if (userAccessLevel === 'mentor') {
+        if (pathname !== '/mentor-dashboard' && pathname !== '/login') {
+          router.push('/mentor-dashboard');
         }
       }
       // Admin users can access everything except login (redirect to home)
@@ -69,41 +86,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [isLoading, pathname, router]);
 
-  const login = (email: string, password: string): boolean => {
-    let userAccessLevel: AccessLevel = null;
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      // Call backend API to verify credentials
+      const response = await fetch(getApiUrl('api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-    // Admin access: email ends with @gradnext.co, password is Gradnext@2026
-    if (email.endsWith('@gradnext.co') && password === 'Gradnext@2026') {
-      userAccessLevel = 'admin';
+      if (!response.ok) {
+        return false;
+      }
+
+      const { accessLevel: userAccessLevel, email: userEmail } = await response.json();
+
+      // Store auth in localStorage with expiration (24 hours)
+      const authData = {
+        email: userEmail,
+        accessLevel: userAccessLevel,
+        timestamp: Date.now(),
+        expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
+      };
+      localStorage.setItem('auth', JSON.stringify(authData));
+
+      setIsAuthenticated(true);
+      setAccessLevel(userAccessLevel);
+      setEmail(userEmail);
+
+      // Redirect based on access level
+      if (userAccessLevel === 'mesa') {
+        router.push('/student-dashboard');
+      } else if (userAccessLevel === 'mentor') {
+        router.push('/mentor-dashboard');
+      } else {
+        router.push('/');
+      }
+
+      return true;
+    } catch (error) {
+      return false;
     }
-    // MESA access: any other email, password is Student@2026
-    else if (password === 'Student@2026') {
-      userAccessLevel = 'mesa';
-    }
-    else {
-      return false; // Invalid credentials
-    }
-
-    // Store auth in localStorage
-    const authData = {
-      email,
-      accessLevel: userAccessLevel,
-      timestamp: Date.now(),
-    };
-    localStorage.setItem('auth', JSON.stringify(authData));
-
-    setIsAuthenticated(true);
-    setAccessLevel(userAccessLevel);
-    setEmail(email);
-
-    // Redirect based on access level
-    if (userAccessLevel === 'mesa') {
-      router.push('/mentee-dashboard');
-    } else {
-      router.push('/');
-    }
-
-    return true;
   };
 
   const logout = () => {

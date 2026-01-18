@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchAllSheets, validateSheetsAccess } from '@/lib/googleSheets';
 
+// Authentication check helper
+function isAuthenticated(request: NextRequest): boolean {
+  // In a production app, validate JWT tokens from Authorization header
+  // For now, we rely on client-side session management
+  // This should be enhanced with proper JWT validation
+  return true;
+}
+
 export async function POST(request: NextRequest) {
+  // Check authentication
+  if (!isAuthenticated(request)) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await request.json().catch(() => ({}));
     const { action, sessionsSpreadsheetId: bodySessionsId, feedbacksSpreadsheetId: bodyFeedbacksId } = body;
@@ -56,7 +72,6 @@ export async function POST(request: NextRequest) {
       data,
     });
   } catch (error: any) {
-    console.error('Error in sheets API:', error);
     return NextResponse.json(
       {
         error: 'Failed to fetch data from Google Sheets',
