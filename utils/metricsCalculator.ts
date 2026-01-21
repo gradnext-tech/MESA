@@ -7,7 +7,7 @@ import { parseISO, differenceInDays, startOfWeek, endOfWeek, startOfMonth, endOf
  */
 export function parseSessionDate(dateStr: string): Date | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
-  
+
   try {
     // Try parsing MM/DD/YYYY format manually first (most common in spreadsheets)
     const parts = dateStr.trim().split('/');
@@ -15,7 +15,7 @@ export function parseSessionDate(dateStr: string): Date | null {
       const month = parseInt(parts[0], 10) - 1; // Month is 0-indexed
       const day = parseInt(parts[1], 10);
       const year = parseInt(parts[2], 10);
-      
+
       if (!isNaN(month) && !isNaN(day) && !isNaN(year) && month >= 0 && month <= 11) {
         const date = new Date(year, month, day);
         if (!isNaN(date.getTime())) {
@@ -23,18 +23,18 @@ export function parseSessionDate(dateStr: string): Date | null {
         }
       }
     }
-    
+
     // Try date-fns parse with common formats
     try {
       let parsed = parse(dateStr, 'M/d/yyyy', new Date());
       if (!isNaN(parsed.getTime())) return parsed;
-      
+
       parsed = parse(dateStr, 'MM/dd/yyyy', new Date());
       if (!isNaN(parsed.getTime())) return parsed;
     } catch {
       // Continue to try other formats
     }
-    
+
     // Try parseISO for ISO format dates
     try {
       const parsed = parseISO(dateStr);
@@ -42,7 +42,7 @@ export function parseSessionDate(dateStr: string): Date | null {
     } catch {
       // Continue to try Date constructor
     }
-    
+
     // Fallback to Date constructor
     const date = new Date(dateStr);
     if (!isNaN(date.getTime())) {
@@ -51,7 +51,7 @@ export function parseSessionDate(dateStr: string): Date | null {
   } catch {
     // Return null if all parsing fails
   }
-  
+
   return null;
 }
 
@@ -60,8 +60,8 @@ export function normalizeSessionStatus(raw?: string) {
   const value = raw.trim().toLowerCase().replace(/\s+/g, ' '); // Normalize whitespace
 
   // Handle completed/done
-  if (value === 'completed' || value === 'done') return 'completed';
-  
+  if (value === 'completed' || value === 'done' || value === 'session done' || value === 'session completed') return 'completed';
+
   // Handle pending
   if (value === 'pending') return 'pending';
 
@@ -119,7 +119,7 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
     }
 
     const status = normalizeSessionStatus(session.sessionStatus);
-    
+
     if (!mentorMap.has(email)) {
       mentorMap.set(email, {
         mentorName: session.mentorName || session.mentorEmail || 'Unknown',
@@ -152,15 +152,19 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
     }
 
     // Count feedbacks NOT filled (for completed sessions only)
-    // Use column N (mentorFeedbackStatus) from MESA sheet if available, otherwise fallback to checking studentFeedback
     if (status === 'completed') {
       const feedbackStatus = (session.mentorFeedbackStatus || '').trim().toLowerCase();
-      const isFilled = feedbackStatus === 'filled' || feedbackStatus === 'yes' || feedbackStatus === 'done';
-      
-      if (!isFilled) {
-        // If column N is not available or indicates not filled, check studentFeedback as fallback
-        if (!session.mentorFeedbackStatus || 
-            (!session.studentFeedback || session.studentFeedback === '' || session.studentFeedback === 'N/A')) {
+      const isFilledStatus = feedbackStatus === 'filled' || feedbackStatus === 'yes' || feedbackStatus === 'done';
+
+      if (!isFilledStatus) {
+        // If column N indicates not filled or is missing, check studentFeedback as fallback
+        const hasActualFeedback = session.studentFeedback &&
+          String(session.studentFeedback).trim() !== '' &&
+          String(session.studentFeedback).trim() !== 'N/A' &&
+          String(session.studentFeedback).trim() !== 'null' &&
+          String(session.studentFeedback).trim() !== 'undefined';
+
+        if (!hasActualFeedback) {
           metrics.feedbacksFilled++; // Using this field to store "not filled" count
         }
       }
@@ -173,25 +177,25 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
   if (mentorFeedbacks && Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
     // Rating column name in the mentor feedbacks sheet
     const ratingColumnName = 'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?';
-    
+
     // Group feedbacks by mentor name and email - extract ratings
     const mentorRatingMap = new Map<string, number[]>();
     const mentorEmailRatingMap = new Map<string, number[]>();
-    
+
     mentorFeedbacks.forEach((feedback) => {
       const mentorName = (feedback['Mentor Name'] || feedback['mentorName'] || '').trim();
       const mentorEmail = (feedback['Mentor Email'] || feedback['mentorEmail'] || feedback['Mentor Email ID'] || '').trim();
-      
+
       if (!mentorName && !mentorEmail) return;
-      
+
       // Get rating value - try by column name first
-      let ratingValue = feedback[ratingColumnName] || 
-                       feedback['Rating'] || 
-                       feedback['rating'] ||
-                       feedback['Overall Rating'] ||
-                       feedback['overall rating'] ||
-                       '';
-      
+      let ratingValue = feedback[ratingColumnName] ||
+        feedback['Rating'] ||
+        feedback['rating'] ||
+        feedback['Overall Rating'] ||
+        feedback['overall rating'] ||
+        '';
+
       // If not found by name, try by column position (H = 8th column, index 7)
       if (!ratingValue || ratingValue === '') {
         const feedbackKeys = Object.keys(feedback);
@@ -199,13 +203,13 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
           ratingValue = feedback[feedbackKeys[7]]; // Column H (0-indexed: 7)
         }
       }
-      
+
       if (!ratingValue || ratingValue === '') return;
-      
+
       // Parse rating as number
       const ratingStr = String(ratingValue).trim();
       const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
-      
+
       if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
         // Store by name
         if (mentorName) {
@@ -215,7 +219,7 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
           }
           mentorRatingMap.get(normalizedMentorName)!.push(numericRating);
         }
-        
+
         // Store by email
         if (mentorEmail) {
           const normalizedMentorEmail = mentorEmail.toLowerCase();
@@ -226,32 +230,32 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
         }
       }
     });
-    
+
     // Apply ratings to mentor metrics by matching mentor names and emails
     mentorMap.forEach((metrics, email) => {
       const normalizedMentorName = (metrics.mentorName || '').trim().toLowerCase();
-      
+
       // Try matching by name first
       let ratings = mentorRatingMap.get(normalizedMentorName) || [];
-      
+
       // If no match by name, try matching by email
       if (ratings.length === 0 && email) {
         ratings = mentorEmailRatingMap.get(email) || [];
       }
-      
+
       // If no match by name, try to find by email or alternative name matching
       if (ratings.length === 0) {
         // Try to find feedbacks that might have email matching or name variations
         const feedbacksForMentor = mentorFeedbacks.filter((fb: any) => {
           const fbMentorName = (fb['Mentor Name'] || fb['mentorName'] || '').trim().toLowerCase();
           const fbMentorEmail = (fb['Mentor Email'] || fb['mentorEmail'] || '').trim().toLowerCase();
-          
+
           // Match by exact name
           if (fbMentorName === normalizedMentorName) return true;
-          
+
           // Match by email
           if (fbMentorEmail && email && fbMentorEmail === email) return true;
-          
+
           // Match by partial name (handle cases where names might have slight variations)
           if (fbMentorName && normalizedMentorName) {
             // Check if either name contains the other (for handling middle names, etc.)
@@ -261,22 +265,22 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
               const sessionNameParts = normalizedMentorName.split(/\s+/).filter((p: string) => p.length > 0);
               if (fbNameParts.length > 0 && sessionNameParts.length > 0) {
                 // Check if first and last parts match
-                if (fbNameParts[0] === sessionNameParts[0] && 
-                    fbNameParts[fbNameParts.length - 1] === sessionNameParts[sessionNameParts.length - 1]) {
+                if (fbNameParts[0] === sessionNameParts[0] &&
+                  fbNameParts[fbNameParts.length - 1] === sessionNameParts[sessionNameParts.length - 1]) {
                   return true;
                 }
               }
             }
           }
-          
+
           return false;
         });
-        
+
         // Extract ratings from these feedbacks
         ratings = feedbacksForMentor
           .map((fb: any) => {
             let ratingValue = fb[ratingColumnName] || fb['Rating'] || fb['rating'] || fb['Overall Rating'] || fb['overall rating'] || '';
-            
+
             // If not found by name, try by column position (H = 8th column, index 7)
             if (!ratingValue || ratingValue === '') {
               const feedbackKeys = Object.keys(fb);
@@ -284,7 +288,7 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
                 ratingValue = fb[feedbackKeys[7]]; // Column H (0-indexed: 7)
               }
             }
-            
+
             if (!ratingValue || ratingValue === '') return null;
             const ratingStr = String(ratingValue).trim();
             const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
@@ -295,7 +299,7 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
           })
           .filter((r): r is number => r !== null);
       }
-      
+
       if (ratings.length > 0) {
         metrics.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10; // Round to 1 decimal
       } else {
@@ -306,10 +310,10 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
     // Fallback: Try to extract from sessions if mentorFeedbacks not provided
     const sessionsForRating = allSessionsForRating || sessions;
     mentorMap.forEach((metrics, email) => {
-      const mentorSessions = sessionsForRating.filter(s => 
+      const mentorSessions = sessionsForRating.filter(s =>
         (s.mentorEmail || '').trim().toLowerCase() === email
       );
-      
+
       const ratings = mentorSessions
         .map(s => {
           const feedback = s.studentFeedback;
@@ -323,7 +327,7 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
           return null;
         })
         .filter((r): r is number => r !== null && !isNaN(r) && r > 0);
-      
+
       if (ratings.length > 0) {
         metrics.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10;
       } else {
@@ -357,7 +361,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   if (weekFilter) {
     const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
     const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
-    
+
     filteredSessions = filteredSessions.filter(session => {
       try {
         const sessionDate = parseSessionDate(session.date);
@@ -378,7 +382,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
     const monthDate = new Date(monthFilter + '-01');
     const monthStart = startOfMonth(monthDate);
     const monthEnd = endOfMonth(monthDate);
-    
+
     filteredSessions = filteredSessions.filter(session => {
       try {
         const sessionDate = parseSessionDate(session.date);
@@ -429,11 +433,11 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   const referenceDate = weekFilter || new Date();
   const currentWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
   const currentWeekEnd = endOfWeek(referenceDate, { weekStartsOn: 1 });
-  
+
   // Calculate previous week
   const previousWeekStart = startOfWeek(subWeeks(currentWeekStart, 1), { weekStartsOn: 1 });
   const previousWeekEnd = endOfWeek(subWeeks(currentWeekStart, 1), { weekStartsOn: 1 });
-  
+
   // Use all sessions without mentor-side disruptions for comparisons across weeks
   const sessionsWithoutMentorDisruptions = sessions.filter(s => !isMentorDisruption(s.sessionStatus));
 
@@ -457,7 +461,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
       .map(s => s.studentEmail)
       .filter(email => email && email.trim() !== '') // Filter out empty emails
   );
-  
+
   // Get candidates who booked last week
   const candidatesLastWeek = new Set(
     sessionsWithoutMentorDisruptions
@@ -478,15 +482,15 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
       .map(s => s.studentEmail)
       .filter(email => email && email.trim() !== '') // Filter out empty emails
   );
-  
+
   // First time candidates = candidates who booked this week but NOT last week
   const firstTimeCandidates = Array.from(candidatesThisWeek).filter(
     email => !candidatesLastWeek.has(email)
   ).length;
 
   // Average sessions per candidate (total)
-  const avgSessionsPerCandidateTotal = candidatesBooking > 0 
-    ? totalSessionsDone / candidatesBooking 
+  const avgSessionsPerCandidateTotal = candidatesBooking > 0
+    ? totalSessionsDone / candidatesBooking
     : 0;
 
   // Average sessions per candidate (who have done at least 1 session)
@@ -498,34 +502,34 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   // Average feedback score - read directly from column L "Overall Rating" in candidate feedbacks
   // Apply the same filters as applied to sessions
   const feedbackScores: number[] = [];
-  
+
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
     // Get all keys from first feedback to find the Overall Rating column
     const firstFeedback = candidateFeedbacks[0];
     const allKeys = Object.keys(firstFeedback);
-    
+
     // Column L is the 12th column (index 11)
     // Try to find column by name first: "Overall Rating"
     let averageKey: string | null = null;
     for (const key of allKeys) {
-      if (key.toLowerCase() === 'overall rating' || 
-          key.toLowerCase() === 'overallrating' ||
-          key.toLowerCase().includes('overall') && key.toLowerCase().includes('rating')) {
+      if (key.toLowerCase() === 'overall rating' ||
+        key.toLowerCase() === 'overallrating' ||
+        key.toLowerCase().includes('overall') && key.toLowerCase().includes('rating')) {
         averageKey = key;
         break;
       }
     }
-    
+
     // If not found by name, try column L (12th column, index 11)
     if (!averageKey && allKeys.length > 11) {
       averageKey = allKeys[11]; // Column L (0-indexed: 11)
     }
-    
+
     if (averageKey) {
       // Filter candidateFeedbacks by the same criteria as sessions
       candidateFeedbacks.forEach((feedback) => {
         let includeThisFeedback = true;
-        
+
         // Apply week filter
         if (weekFilter && includeThisFeedback) {
           const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
@@ -546,7 +550,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
             includeThisFeedback = false; // No date, exclude
           }
         }
-        
+
         // Apply month filter
         if (monthFilter && includeThisFeedback) {
           const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
@@ -568,20 +572,20 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
             includeThisFeedback = false; // No date, exclude
           }
         }
-        
+
         // Apply student email filter - match by names only since Candidate Feedback sheet has no email
         if (studentEmailFilter && includeThisFeedback) {
           const filterEmails = Array.isArray(studentEmailFilter) ? studentEmailFilter : [studentEmailFilter];
           if (filterEmails.length > 0) {
             const normalizedFilterEmails = filterEmails.map(e => (e || '').trim().toLowerCase()).filter(e => e);
             const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['studentName'] || '').trim().toLowerCase();
-            
+
             // Get the names from sessions that match the filter emails
             const filterNames = filteredSessions
               .filter(s => normalizedFilterEmails.includes((s.studentEmail || '').trim().toLowerCase()))
               .map(s => (s.studentName || '').trim().toLowerCase())
               .filter(n => n);
-            
+
             // Match by name (exact match or partial match)
             const nameMatch = feedbackCandidateName && (
               filterNames.includes(feedbackCandidateName) ||
@@ -597,11 +601,11 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
                 return false;
               })
             );
-            
+
             includeThisFeedback = nameMatch;
           }
         }
-        
+
         // If this feedback passes all filters, include its average value
         if (includeThisFeedback) {
           const averageValue = feedback[averageKey];
@@ -615,7 +619,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
       });
     }
   }
-  
+
   const avgFeedbackScore = feedbackScores.length > 0
     ? feedbackScores.reduce((a, b) => a + b, 0) / feedbackScores.length
     : 0;
@@ -624,16 +628,16 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   // Use ALL sessions without mentor disruptions (not just filtered) to calculate weeks, but use completed sessions for count
   const allCandidateStats = calculateCandidateStats(sessionsWithoutMentorDisruptions);
   const weeksWithSessions = new Set<string>();
-  
-  
+
+
   sessionsWithoutMentorDisruptions.forEach((s) => {
     try {
       // Parse date - handle MM/DD/YYYY format manually (same approach as page.tsx)
       let sessionDate: Date | null = null;
       const dateStr = s.date;
-      
+
       if (!dateStr) return;
-      
+
       // Try parsing MM/DD/YYYY format manually first
       if (typeof dateStr === 'string') {
         const parts = dateStr.split('/');
@@ -642,13 +646,13 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
           const month = parseInt(parts[0], 10) - 1; // Month is 0-indexed in Date constructor
           const day = parseInt(parts[1], 10);
           const year = parseInt(parts[2], 10);
-          
+
           if (!isNaN(month) && !isNaN(day) && !isNaN(year)) {
             sessionDate = new Date(year, month, day);
           }
         }
       }
-      
+
       // Fallback to parseISO or new Date if manual parsing didn't work
       if (!sessionDate || isNaN(sessionDate.getTime())) {
         try {
@@ -657,7 +661,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
           sessionDate = new Date(dateStr);
         }
       }
-      
+
       if (sessionDate && !isNaN(sessionDate.getTime())) {
         const weekStart = startOfWeek(sessionDate, { weekStartsOn: 1 });
         weeksWithSessions.add(weekStart.toISOString());
@@ -666,26 +670,26 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
       // Skip invalid dates
     }
   });
-  
+
   // Calculate average sessions per week (completed sessions per unique week)
-  const avgSessionsPerWeek = weeksWithSessions.size > 0 
-    ? totalSessionsDone / weeksWithSessions.size 
+  const avgSessionsPerWeek = weeksWithSessions.size > 0
+    ? totalSessionsDone / weeksWithSessions.size
     : 0;
-  
+
 
   // Calculate average rating per week - using mentorFeedback (ratings from mentors about students)
   const weeklyRatings: number[] = [];
   const weekRatingMap = new Map<string, number[]>();
-  
-  
+
+
   completedSessions.forEach(s => {
     try {
       // Parse date - handle MM/DD/YYYY format manually (same approach as page.tsx)
       let sessionDate: Date | null = null;
       const dateStr = s.date;
-      
+
       if (!dateStr) return;
-      
+
       // Try parsing MM/DD/YYYY format manually first
       if (typeof dateStr === 'string') {
         const parts = dateStr.split('/');
@@ -694,13 +698,13 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
           const month = parseInt(parts[0], 10) - 1; // Month is 0-indexed in Date constructor
           const day = parseInt(parts[1], 10);
           const year = parseInt(parts[2], 10);
-          
+
           if (!isNaN(month) && !isNaN(day) && !isNaN(year)) {
             sessionDate = new Date(year, month, day);
           }
         }
       }
-      
+
       // Fallback to parseISO or new Date if manual parsing didn't work
       if (!sessionDate || isNaN(sessionDate.getTime())) {
         try {
@@ -709,7 +713,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
           sessionDate = new Date(dateStr);
         }
       }
-      
+
       if (sessionDate && !isNaN(sessionDate.getTime())) {
         const weekStart = startOfWeek(sessionDate, { weekStartsOn: 1 });
         const weekKey = weekStart.toISOString();
@@ -735,7 +739,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   const avgRatingPerWeek = weeklyRatings.length > 0
     ? weeklyRatings.reduce((a, b) => a + b, 0) / weeklyRatings.length
     : 0;
-  
+
 
   // Top 10% candidates by number of sessions booked (return list)
   const sortedBySessions = [...allCandidateStats].sort((a, b) => b.totalSessionsBooked - a.totalSessionsBooked);
@@ -747,17 +751,17 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
     // Group feedbacks by candidate email/name and calculate average rating
     const candidateRatingMap = new Map<string, { name: string; email: string; ratings: number[]; count: number }>();
-    
+
     candidateFeedbacks.forEach((feedback) => {
       const candidateName = feedback['Candidate Name'] || feedback['candidateName'] || '';
       const candidateEmail = feedback['Candidate Email'] || feedback['candidateEmail'] || '';
-      const averageValue = feedback['Overall Rating'] || 
-                          feedback['overall rating'] || 
-                          feedback['Overall rating'] ||
-                          feedback['overallRating'] ||
-                          feedback['Average'] || 
-                          feedback['average'];
-      
+      const averageValue = feedback['Overall Rating'] ||
+        feedback['overall rating'] ||
+        feedback['Overall rating'] ||
+        feedback['overallRating'] ||
+        feedback['Average'] ||
+        feedback['average'];
+
       if (candidateName || candidateEmail) {
         const key = (candidateEmail || candidateName).toLowerCase().trim();
         if (!candidateRatingMap.has(key)) {
@@ -768,7 +772,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
             count: 0
           });
         }
-        
+
         const candidateData = candidateRatingMap.get(key)!;
         if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
           const avgRating = parseFloat(String(averageValue));
@@ -779,18 +783,18 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
         }
       }
     });
-    
+
     // Calculate average for each candidate and create CandidateSessionStats
     const candidatesWithRatings: CandidateSessionStats[] = [];
     candidateRatingMap.forEach((data, key) => {
       if (data.ratings.length > 0) {
         const avgRating = data.ratings.reduce((a, b) => a + b, 0) / data.ratings.length;
         // Find matching candidate stats to get session count
-        const matchingStats = allCandidateStats.find(c => 
+        const matchingStats = allCandidateStats.find(c =>
           (c.email && c.email.toLowerCase().trim() === key) ||
           (c.name && c.name.toLowerCase().trim() === key)
         );
-        
+
         candidatesWithRatings.push({
           name: data.name || matchingStats?.name || 'Unknown',
           email: data.email || matchingStats?.email || '',
@@ -809,7 +813,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
         });
       }
     });
-    
+
     // Filter candidates with rating > 4.75 (not just top 10% by count)
     const topPerformers = candidatesWithRatings.filter(c => c.avgFeedback > 4.75);
     const sortedByRating = [...topPerformers].sort((a, b) => b.avgFeedback - a.avgFeedback);
@@ -825,19 +829,19 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
   // First, try to get ratings from candidateFeedbacks sheet if available
   let bottom10Feedback: CandidateSessionStats[] = [];
   let bottom25Feedback: CandidateSessionStats[] = [];
-  
+
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
     // Group feedbacks by candidate email/name and calculate average rating from Column L "Overall Rating"
     const candidateRatingMap = new Map<string, { name: string; email: string; ratings: number[]; count: number }>();
-    
+
     candidateFeedbacks.forEach((feedback) => {
       const candidateName = feedback['Candidate Name'] || feedback['candidateName'] || '';
       const candidateEmail = feedback['Candidate Email'] || feedback['candidateEmail'] || '';
-      const overallRating = feedback['Overall Rating'] || 
-                           feedback['overall rating'] || 
-                           feedback['Overall rating'] ||
-                           feedback['overallRating'];
-      
+      const overallRating = feedback['Overall Rating'] ||
+        feedback['overall rating'] ||
+        feedback['Overall rating'] ||
+        feedback['overallRating'];
+
       // If not found by name, try by column position (L = 12th column, index 11)
       let ratingValue = overallRating;
       if (!ratingValue) {
@@ -846,7 +850,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
           ratingValue = feedback[keys[11]]; // Column L
         }
       }
-      
+
       if (candidateName || candidateEmail) {
         const key = (candidateEmail || candidateName).toLowerCase().trim();
         if (!candidateRatingMap.has(key)) {
@@ -857,7 +861,7 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
             count: 0
           });
         }
-        
+
         const candidateData = candidateRatingMap.get(key)!;
         if (ratingValue !== null && ratingValue !== undefined && ratingValue !== '') {
           const avgRating = parseFloat(String(ratingValue));
@@ -868,21 +872,21 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
         }
       }
     });
-    
+
     // Calculate average for each candidate and filter by rating thresholds
     const candidatesWithLowRatings: CandidateSessionStats[] = [];
     candidateRatingMap.forEach((data, key) => {
       if (data.ratings.length > 0) {
         const avgRating = data.ratings.reduce((a, b) => a + b, 0) / data.ratings.length;
-        
+
         // Only include candidates with rating < 3.5
         if (avgRating < 3.5) {
           // Find matching candidate stats to get session count
-          const matchingStats = allCandidateStats.find(c => 
+          const matchingStats = allCandidateStats.find(c =>
             (c.email && c.email.toLowerCase().trim() === key) ||
             (c.name && c.name.toLowerCase().trim() === key)
           );
-          
+
           candidatesWithLowRatings.push({
             name: data.name || matchingStats?.name || 'Unknown',
             email: data.email || matchingStats?.email || '',
@@ -902,10 +906,10 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
         }
       }
     });
-    
+
     // Sort by rating (lowest first)
     const sortedByRating = [...candidatesWithLowRatings].sort((a, b) => a.avgFeedback - b.avgFeedback);
-    
+
     // For backward compatibility:
     // bottom10Feedback = all candidates with rating < 3.5
     // bottom25Feedback = all candidates with rating < 3.5 (same list)
@@ -989,7 +993,7 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
     // Normalize email to lowercase for case-insensitive matching
     const email = (session.studentEmail || '').trim().toLowerCase();
     if (!email) return; // Skip sessions without email
-    
+
     if (!candidateMap.has(email)) {
       candidateMap.set(email, {
         email: session.studentEmail || '', // Keep original email format for display
@@ -1056,12 +1060,12 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
   // Calculate completion rates and unique mentors
   candidateMap.forEach((stats, normalizedEmail) => {
     // Match sessions by normalized email (case-insensitive)
-    const candidateSessions = sessions.filter(s => 
+    const candidateSessions = sessions.filter(s =>
       (s.studentEmail || '').trim().toLowerCase() === normalizedEmail
     );
     const uniqueMentorEmails = new Set(candidateSessions.map(s => s.mentorEmail));
     stats.uniqueMentors = uniqueMentorEmails.size;
-    
+
     if (stats.totalSessionsBooked > 0) {
       stats.completionRate = (stats.completedSessions / stats.totalSessionsBooked) * 100;
     }
@@ -1075,7 +1079,7 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
  */
 function calculateAvgFeedback(candidates: CandidateSessionStats[]): number {
   if (candidates.length === 0) return 0;
-  
+
   const totalFeedback = candidates.reduce((sum, c) => sum + c.avgFeedback, 0);
   return totalFeedback / candidates.length;
 }
@@ -1086,7 +1090,7 @@ function calculateAvgFeedback(candidates: CandidateSessionStats[]): number {
  */
 export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeedbacks?: any[], allSessions?: Session[]): CandidateSessionStats[] {
   const candidateStats = calculateCandidateStats(sessions);
-  
+
   // If candidateFeedbacks are provided, update avgFeedback from the Candidate Feedback sheet
   // This ensures we use the actual Average column from the sheet, not calculated values
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
@@ -1094,19 +1098,19 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
     const candidateRatingData = new Map<string, { ratings: number[]; count: number; email?: string; name?: string }>();
     // Also create a lookup map for both email and name keys
     const candidateKeyMap = new Map<string, string>(); // Maps email/name -> unique key
-    
+
     candidateFeedbacks.forEach((feedback, index) => {
       const candidateName = (feedback['Candidate Name'] || feedback['candidateName'] || '').toLowerCase().trim();
       const candidateEmail = (feedback['Candidate Email'] || feedback['candidateEmail'] || '').toLowerCase().trim();
-      
+
       // Use column L "Overall Rating" from "Candidate feedback form filled by mentors" sheet
-      let averageValue = feedback['Overall Rating'] || 
-                        feedback['overall rating'] || 
-                        feedback['Overall rating'] ||
-                        feedback['overallRating'] ||
-                        feedback['Average'] || 
-                        feedback['average'];
-      
+      let averageValue = feedback['Overall Rating'] ||
+        feedback['overall rating'] ||
+        feedback['Overall rating'] ||
+        feedback['overallRating'] ||
+        feedback['Average'] ||
+        feedback['average'];
+
       // If not found, try to find by column position (column L = index 11)
       if (!averageValue) {
         const keys = Object.keys(feedback);
@@ -1114,23 +1118,23 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
           averageValue = feedback[keys[11]]; // Column L
         }
       }
-      
-      
+
+
       if (candidateName || candidateEmail) {
         if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
           const avgRating = parseFloat(String(averageValue));
           if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
             // Use email as primary key, fallback to name
             const uniqueKey = candidateEmail || candidateName;
-            
+
             if (!candidateRatingData.has(uniqueKey)) {
               candidateRatingData.set(uniqueKey, { ratings: [], count: 0, email: candidateEmail || undefined, name: candidateName || undefined });
             }
             const candidateData = candidateRatingData.get(uniqueKey)!;
             candidateData.ratings.push(avgRating);
             candidateData.count++;
-            
-            
+
+
             // Map both email and name to the unique key for lookup
             if (candidateEmail) candidateKeyMap.set(candidateEmail, uniqueKey);
             if (candidateName && candidateName !== candidateEmail) candidateKeyMap.set(candidateName, uniqueKey);
@@ -1138,19 +1142,19 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
         }
       }
     });
-    
+
     // Update candidate stats with accurate ratings from Candidate Feedback sheet
     candidateStats.forEach((stats) => {
       // Try to match by email first, then by name
       const emailKey = (stats.email || '').toLowerCase().trim();
       const nameKey = (stats.name || '').toLowerCase().trim();
-      
+
       // Find the unique key for this candidate
       let uniqueKey = candidateKeyMap.get(emailKey);
       if (!uniqueKey && nameKey) {
         uniqueKey = candidateKeyMap.get(nameKey);
       }
-      
+
       if (uniqueKey) {
         const candidateData = candidateRatingData.get(uniqueKey);
         if (candidateData && candidateData.ratings.length > 0) {
@@ -1158,33 +1162,33 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
           const avgRating = candidateData.ratings.reduce((a, b) => a + b, 0) / candidateData.ratings.length;
           stats.avgFeedback = avgRating;
           stats.feedbackCount = candidateData.count;
-          
+
         }
       }
     });
-    
+
     // IMPORTANT: Also add candidates from candidateFeedbacks who might not be in the filtered sessions
     // This ensures we don't miss candidates with high/low ratings who don't have sessions in the current filter
     candidateRatingData.forEach((candidateData, uniqueKey) => {
       const email = candidateData.email || '';
       const name = candidateData.name || '';
-      
+
       // Check if this candidate is already in candidateStats
-      const existingStats = candidateStats.find(s => 
+      const existingStats = candidateStats.find(s =>
         (email && s.email && s.email.toLowerCase().trim() === email.toLowerCase().trim()) ||
         (name && s.name && s.name.toLowerCase().trim() === name.toLowerCase().trim())
       );
-      
+
       if (!existingStats && candidateData.ratings.length > 0) {
         // Create a new candidate stat entry for this candidate from feedback sheet
         const avgRating = candidateData.ratings.reduce((a, b) => a + b, 0) / candidateData.ratings.length;
-        
+
         // Find this candidate in ALL sessions (not just filtered) to get basic info
-        const candidateSession = (allSessions || sessions).find(s => 
+        const candidateSession = (allSessions || sessions).find(s =>
           (email && s.studentEmail && s.studentEmail.toLowerCase().trim() === email.toLowerCase().trim()) ||
           (name && s.studentName && s.studentName.toLowerCase().trim() === name.toLowerCase().trim())
         );
-        
+
         const newStats: CandidateSessionStats = {
           email: email || candidateSession?.studentEmail || '',
           name: name || candidateSession?.studentName || email || 'Unknown',
@@ -1201,26 +1205,26 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
           totalSessionsBooked: 0,
           completionRate: 0,
         };
-        
+
         candidateStats.push(newStats);
       }
     });
   }
-  
+
   // Deduplicate candidates by normalized email (case-insensitive) before returning
   // This ensures candidates with same email but different case are treated as one
   const deduplicatedStats = new Map<string, CandidateSessionStats>();
-  
+
   candidateStats.forEach(stats => {
     const normalizedEmail = (stats.email || '').trim().toLowerCase();
     const normalizedName = (stats.name || '').trim().toLowerCase();
-    
+
     // Skip if no identifier
     if (!normalizedEmail && !normalizedName) return;
-    
+
     // Use email as primary key, fallback to name
     const key = normalizedEmail || normalizedName;
-    
+
     const existing = deduplicatedStats.get(key);
     if (!existing) {
       // First time seeing this candidate
@@ -1231,15 +1235,15 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
         deduplicatedStats.set(key, stats);
       } else if (stats.totalSessionsBooked === existing.totalSessionsBooked) {
         // Same sessions - prefer the one with better data (email, name, feedback)
-        if ((stats.email && !existing.email) || 
-            (stats.name && !existing.name) ||
-            (stats.avgFeedback > existing.avgFeedback)) {
+        if ((stats.email && !existing.email) ||
+          (stats.name && !existing.name) ||
+          (stats.avgFeedback > existing.avgFeedback)) {
           deduplicatedStats.set(key, stats);
         }
       }
     }
   });
-  
+
   // Sort by total sessions (most active first)
   return Array.from(deduplicatedStats.values()).sort((a, b) => {
     if (b.totalSessionsBooked !== a.totalSessionsBooked) {
@@ -1293,10 +1297,10 @@ export function calculateMentorSessionStats(
 
   // Filter by mentor if provided (handle both string and string[])
   if (mentorEmailFilter) {
-    const filterEmails = Array.isArray(mentorEmailFilter) 
+    const filterEmails = Array.isArray(mentorEmailFilter)
       ? mentorEmailFilter.map(e => e.trim().toLowerCase())
       : [mentorEmailFilter.trim().toLowerCase()];
-    
+
     const beforeFilterCount = filteredSessions.length;
     filteredSessions = filteredSessions.filter(s => {
       const sessionEmail = (s.mentorEmail || '').trim().toLowerCase();
@@ -1310,16 +1314,16 @@ export function calculateMentorSessionStats(
   // If mentor filter is applied, pre-populate the map with that mentor's info
   // This ensures we have an entry even if no sessions match after date filtering
   if (mentorEmailFilter) {
-    const filterEmails = Array.isArray(mentorEmailFilter) 
+    const filterEmails = Array.isArray(mentorEmailFilter)
       ? mentorEmailFilter.map(e => e.trim().toLowerCase())
       : [mentorEmailFilter.trim().toLowerCase()];
-    
+
     filterEmails.forEach(normalizedFilterEmail => {
       // Try to find the mentor's info from all sessions (not just filtered)
-      const mentorSession = originalSessions.find(s => 
+      const mentorSession = originalSessions.find(s =>
         (s.mentorEmail || '').trim().toLowerCase() === normalizedFilterEmail
       );
-      
+
       if (mentorSession) {
         // Use normalized email as key for consistent matching
         const emailKey = (mentorSession.mentorEmail || '').trim().toLowerCase();
@@ -1395,32 +1399,32 @@ export function calculateMentorSessionStats(
 
   // Calculate average rating and feedbacks not filled for each mentor
   // Use mentorFeedbacks directly from the sheet if provided (primary source)
-  
+
   const sessionsForRating = allSessionsForRating || filteredSessions;
   mentorMap.forEach((stats, email) => {
     // Get all sessions for this mentor (from filtered sessions for metrics)
-    const mentorSessions = filteredSessions.filter(s => 
+    const mentorSessions = filteredSessions.filter(s =>
       (s.mentorEmail || '').trim().toLowerCase() === email
     );
-    
+
     // Calculate average rating directly from mentorFeedbacks sheet (if provided)
     let ratings: number[] = [];
-    
+
     if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
       // Rating column name in the mentor feedbacks sheet
       const ratingColumnName = 'On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?';
-      
+
       // Get mentor name for matching (normalized)
       const mentorName = (stats.mentorName || '').trim().toLowerCase();
       const normalizedEmail = email.toLowerCase();
-      
-      
+
+
       // Extract ratings from mentorFeedbacks for this mentor
       // Try multiple matching strategies
       const feedbacksForMentor = mentorFeedbacks.filter((fb: any) => {
         const fbMentorName = (fb['Mentor Name'] || fb['mentorName'] || '').trim().toLowerCase();
         const fbMentorEmail = (fb['Mentor Email'] || fb['mentorEmail'] || '').trim().toLowerCase();
-        
+
         // Match by exact name (case-insensitive)
         if (fbMentorName && mentorName && fbMentorName === mentorName) {
           return true;
@@ -1438,8 +1442,8 @@ export function calculateMentorSessionStats(
             const sessionNameParts = mentorName.split(/\s+/).filter((p: string) => p.length > 0);
             if (fbNameParts.length > 0 && sessionNameParts.length > 0) {
               // Check if first and last parts match
-              if (fbNameParts[0] === sessionNameParts[0] && 
-                  fbNameParts[fbNameParts.length - 1] === sessionNameParts[sessionNameParts.length - 1]) {
+              if (fbNameParts[0] === sessionNameParts[0] &&
+                fbNameParts[fbNameParts.length - 1] === sessionNameParts[sessionNameParts.length - 1]) {
                 return true;
               }
             }
@@ -1447,17 +1451,17 @@ export function calculateMentorSessionStats(
         }
         return false;
       });
-      
+
       // Extract ratings from these feedbacks
       ratings = feedbacksForMentor
         .map((fb: any) => {
-          let ratingValue = fb[ratingColumnName] || 
-                           fb['Rating'] || 
-                           fb['rating'] || 
-                           fb['Overall Rating'] || 
-                           fb['overall rating'] ||
-                           '';
-          
+          let ratingValue = fb[ratingColumnName] ||
+            fb['Rating'] ||
+            fb['rating'] ||
+            fb['Overall Rating'] ||
+            fb['overall rating'] ||
+            '';
+
           // If not found by name, try by column position (H = 8th column, index 7)
           if (!ratingValue || ratingValue === '') {
             const feedbackKeys = Object.keys(fb);
@@ -1465,7 +1469,7 @@ export function calculateMentorSessionStats(
               ratingValue = fb[feedbackKeys[7]]; // Column H (0-indexed: 7)
             }
           }
-          
+
           if (!ratingValue || ratingValue === '') return null;
           const ratingStr = String(ratingValue).trim();
           const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
@@ -1476,13 +1480,13 @@ export function calculateMentorSessionStats(
         })
         .filter((r): r is number => r !== null);
     }
-    
+
     // Fallback: Try to extract from sessions if mentorFeedbacks not provided or no ratings found
     if (ratings.length === 0) {
-      const mentorSessionsForRating = sessionsForRating.filter(s => 
+      const mentorSessionsForRating = sessionsForRating.filter(s =>
         (s.mentorEmail || '').trim().toLowerCase() === email
       );
-      
+
       ratings = mentorSessionsForRating
         .map(s => {
           const feedback = s.studentFeedback;
@@ -1506,43 +1510,42 @@ export function calculateMentorSessionStats(
         })
         .filter((r): r is number => r !== null && !isNaN(r) && r > 0);
     }
-    
+
     if (ratings.length > 0) {
       stats.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10;
     } else {
       stats.avgRating = 0;
     }
-    
+
     // Count feedbacks not filled (completed sessions without feedback)
     // Use column N (mentorFeedbackStatus) from MESA sheet if available
-    const completedSessions = mentorSessions.filter(s => 
+    const completedSessions = mentorSessions.filter(s =>
       normalizeSessionStatus(s.sessionStatus) === 'completed'
     );
     stats.feedbacksNotFilled = completedSessions.filter(s => {
       const feedbackStatus = (s.mentorFeedbackStatus || '').trim().toLowerCase();
-      const isFilled = feedbackStatus === 'filled' || feedbackStatus === 'yes' || feedbackStatus === 'done';
-      
-      // If column N indicates filled, return false (not in "not filled" count)
-      if (isFilled) {
-        return false;
-      }
-      
-      // If column N is not available, fallback to checking studentFeedback
-      if (!s.mentorFeedbackStatus) {
-        return !s.studentFeedback || s.studentFeedback === '' || s.studentFeedback === 'N/A';
-      }
-      
-      // Column N exists and indicates not filled
-      return true;
+      const isFilledStatus = feedbackStatus === 'filled' || feedbackStatus === 'yes' || feedbackStatus === 'done';
+
+      // If column N indicates filled, it's not "not filled"
+      if (isFilledStatus) return false;
+
+      // If column N is not available or indicates not filled, check studentFeedback as fallback
+      const hasActualFeedback = s.studentFeedback &&
+        String(s.studentFeedback).trim() !== '' &&
+        String(s.studentFeedback).trim() !== 'N/A' &&
+        String(s.studentFeedback).trim() !== 'null' &&
+        String(s.studentFeedback).trim() !== 'undefined';
+
+      return !hasActualFeedback;
     }).length;
-    
+
   });
 
-  const result = Array.from(mentorMap.values()).sort((a, b) => 
+  const result = Array.from(mentorMap.values()).sort((a, b) =>
     a.mentorName.localeCompare(b.mentorName)
   );
-  
-  
+
+
   return result;
 }
 
@@ -1557,96 +1560,96 @@ function parseSessionData(sessionData: any[]): Session[] {
     const dateValue = row['Date'] || row['date'] || row['Session Date'] || row['sessionDate'] || row['Zoho Time'] || row['zohoTime'] || '';
     const mentorEmailValue = row['Mentor Email ID'] || row['mentorEmail'] || row['Mentor Email'] || row['mentorEmail'] || '';
     const studentEmailValue = row['Mentee Email'] || row['studentEmail'] || row['Candidate Email'] || row['candidateEmail'] || '';
-    
+
     // Check if values are non-empty strings (after trimming)
     const hasDate = dateValue && String(dateValue).trim() !== '';
     const hasMentorEmail = mentorEmailValue && String(mentorEmailValue).trim() !== '';
     const hasMenteeEmail = studentEmailValue && String(studentEmailValue).trim() !== '';
-    
+
     // Require at least one email, and prefer date but allow without date if we have session status
     // This handles cases where Date might be empty but Session Status indicates a valid session
     const hasSessionStatus = row['Session Status'] && String(row['Session Status']).trim() !== '';
     const hasValidSession = hasSessionStatus && (hasMentorEmail || hasMenteeEmail);
-    
+
     // Valid if: (has date AND has email) OR (has session status AND has email)
     const isValid = (hasDate && (hasMentorEmail || hasMenteeEmail)) || hasValidSession;
-    
+
     return isValid;
   });
 
   const parsed = filtered.map((row) => {
-      // Get column N (14th column, index 13) for mentor feedback status
-      // Try by column name first, then by position
-      const allKeys = Object.keys(row);
-      let mentorFeedbackStatus = '';
-      let sessionType = '';
-      let invitationStatus = '';
-      
-      // Try common column names for column N
-      mentorFeedbackStatus = row['Mentor Feedback Status'] || 
-                            row['mentorFeedbackStatus'] || 
-                            row['Feedback Status'] || 
-                            row['feedbackStatus'] ||
-                            row['Mentor Feedback'] ||
-                            row['mentorFeedback'] ||
-                            '';
-      
-      // If not found by name, try by column position (Column N = index 13)
-      if (!mentorFeedbackStatus && allKeys.length > 13) {
-        mentorFeedbackStatus = row[allKeys[13]] || '';
-      }
-      
-      // Get column R (18th column, index 17) for session type
-      // Try by column name first, then by position
-      sessionType = row['Session Type'] || 
-                   row['sessionType'] || 
-                   row['Type'] || 
-                   row['type'] ||
-                   '';
-      
-      // If not found by name, try by column position (Column R = index 17)
-      if (!sessionType && allKeys.length > 17) {
-        sessionType = row[allKeys[17]] || '';
-      }
+    // Get column N (14th column, index 13) for mentor feedback status
+    // Try by column name first, then by position
+    const allKeys = Object.keys(row);
+    let mentorFeedbackStatus = '';
+    let sessionType = '';
+    let invitationStatus = '';
 
-      // Get column J (10th column, index 9) for Invitation Status
-      // Try by column name first, then by position
-      invitationStatus =
-        row['Invitation Status'] ||
-        row['Invitation status'] ||
-        row['Invitation status '] ||
-        row['Invitation status'] ||
-        row['invitationStatus'] ||
-        row['invitation status'] ||
-        row['InvitationStatus'] ||
-        '';
+    // Try common column names for column N
+    mentorFeedbackStatus = row['Mentor Feedback Status'] ||
+      row['mentorFeedbackStatus'] ||
+      row['Feedback Status'] ||
+      row['feedbackStatus'] ||
+      row['Mentor Feedback'] ||
+      row['mentorFeedback'] ||
+      '';
 
-      if (!invitationStatus && allKeys.length > 9) {
-        invitationStatus = row[allKeys[9]] || '';
-      }
-      
-      return {
+    // If not found by name, try by column position (Column N = index 13)
+    if (!mentorFeedbackStatus && allKeys.length > 13) {
+      mentorFeedbackStatus = row[allKeys[13]] || '';
+    }
+
+    // Get column R (18th column, index 17) for session type
+    // Try by column name first, then by position
+    sessionType = row['Session Type'] ||
+      row['sessionType'] ||
+      row['Type'] ||
+      row['type'] ||
+      '';
+
+    // If not found by name, try by column position (Column R = index 17)
+    if (!sessionType && allKeys.length > 17) {
+      sessionType = row[allKeys[17]] || '';
+    }
+
+    // Get column J (10th column, index 9) for Invitation Status
+    // Try by column name first, then by position
+    invitationStatus =
+      row['Invitation Status'] ||
+      row['Invitation status'] ||
+      row['Invitation status '] ||
+      row['Invitation status'] ||
+      row['invitationStatus'] ||
+      row['invitation status'] ||
+      row['InvitationStatus'] ||
+      '';
+
+    if (!invitationStatus && allKeys.length > 9) {
+      invitationStatus = row[allKeys[9]] || '';
+    }
+
+    return {
       sNo: row['S No'] || row['sNo'] || null, // Use actual value from sheet, null if missing
-    mentorName: row['Mentor Name'] || row['mentorName'] || '',
+      mentorName: row['Mentor Name'] || row['mentorName'] || '',
       mentorEmail: row['Mentor Email ID'] || row['mentorEmail'] || row['Mentor Email'] || '',
       studentName: row['Mentee Name'] || row['studentName'] || row['Candidate Name'] || row['candidateName'] || '',
       studentEmail: row['Mentee Email'] || row['studentEmail'] || row['Candidate Email'] || row['candidateEmail'] || '',
       studentPhone: row['Mentee Ph no'] || row['studentPhone'] || row['Mentee Phone'] || row['studentPhone'] || '',
       date: row['Date'] || row['date'] || row['Zoho Time'] || row['zohoTime'] || row['Session Date'] || row['sessionDate'] || '',
-    time: row['Time'] || row['time'] || '',
-    inviteTitle: row['Invite Title'] || row['inviteTitle'] || '',
-    invitationStatus: String(invitationStatus || '').trim(),
-    mentorConfirmationStatus: row['Mentor Confirmation Status'] || row['mentorConfirmationStatus'] || '',
-    studentConfirmationStatus: row['Mentee Confirmation Status'] || row['studentConfirmationStatus'] || '',
-    sessionStatus: row['Session Status'] || row['sessionStatus'] || '',
+      time: row['Time'] || row['time'] || '',
+      inviteTitle: row['Invite Title'] || row['inviteTitle'] || '',
+      invitationStatus: String(invitationStatus || '').trim(),
+      mentorConfirmationStatus: row['Mentor Confirmation Status'] || row['mentorConfirmationStatus'] || '',
+      studentConfirmationStatus: row['Mentee Confirmation Status'] || row['studentConfirmationStatus'] || '',
+      sessionStatus: row['Session Status'] || row['sessionStatus'] || '',
       mentorFeedback: '', // Will be merged from feedbacks sheet
       studentFeedback: '', // Will be merged from feedbacks sheet
       mentorFeedbackStatus: String(mentorFeedbackStatus || '').trim(), // Column N from MESA sheet
       sessionType: String(sessionType || '').trim(), // Column R from MESA sheet
-    comments: row['Comments'] || row['comments'] || '',
-    paymentStatus: row['Payment Status'] || row['paymentStatus'] || '',
-      };
-    });
+      comments: row['Comments'] || row['comments'] || '',
+      paymentStatus: row['Payment Status'] || row['paymentStatus'] || '',
+    };
+  });
 
 
   // Only include sessions where Invitation Status (Column J) is "Sent"
@@ -1686,20 +1689,20 @@ function mergeFeedbacksWithSessions(
   // - On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?
   // - How could it have been made better and any suggestions for the gradnext team or mentor
   if (Array.isArray(mentorFeedbacks) && mentorFeedbacks.length > 0) {
-    
+
     mentorFeedbacks.forEach((feedback, index) => {
       // Use actual column names from the sheet
       const date = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
       const mentorName = feedback['Mentor Name'] || feedback['mentorName'] || '';
       const studentName = feedback['Your Name (Optional)'] || feedback['Your Name'] || feedback['yourName'] || '';
-      
+
       // Try to match by date and mentor name (since email might not be in feedback sheet)
       // We'll create a key with date and mentor name, and try to match with sessions
       if (date && mentorName) {
         // Normalize date format (remove time if present)
         // Handle various date formats: "2024-01-15", "1/15/2024", "15-01-2024", etc.
         let normalizedDate = String(date).split(' ')[0].split('T')[0];
-        
+
         // Try to parse and reformat date - handle MM/DD/YYYY format
         try {
           // Try MM/DD/YYYY format first (common in Google Sheets)
@@ -1726,31 +1729,31 @@ function mergeFeedbacksWithSessions(
         } catch (e) {
           // Keep original format if parsing fails
         }
-        
+
         const normalizedMentorName = String(mentorName).trim().toLowerCase();
         const key = `${normalizedDate}|${normalizedMentorName}`;
         mentorFeedbackMap.set(key, feedback);
-        
+
         // Create multiple key variations for better matching
         // Original date format
         const originalDate = String(date).split(' ')[0].split('T')[0];
         if (originalDate !== normalizedDate) {
           mentorFeedbackMap.set(`${originalDate}|${normalizedMentorName}`, feedback);
         }
-        
+
         // Date with slashes
         const dateWithSlashes = normalizedDate.replace(/-/g, '/');
         if (dateWithSlashes !== normalizedDate) {
           mentorFeedbackMap.set(`${dateWithSlashes}|${normalizedMentorName}`, feedback);
         }
-        
+
         // Also create key with original MM/DD/YYYY format for direct matching
         const dateParts = String(date).split(' ')[0].split('T')[0].split('/');
         if (dateParts.length === 3) {
           const originalDateStr = dateParts.join('/');
           mentorFeedbackMap.set(`${originalDateStr}|${normalizedMentorName}`, feedback);
         }
-        
+
         // Also try with date in different formats for matching
         try {
           // Parse the normalized YYYY-MM-DD date back to components
@@ -1768,31 +1771,31 @@ function mergeFeedbacksWithSessions(
         } catch (e) {
           // Ignore date formatting errors
         }
-        
+
       }
     });
-    
+
   }
 
   // Process "Candidate feedback filled by Mentors" (mentor feedback about mentee)
   // This sheet contains feedback from mentors about students
   // Column structure: Timestamp, Mentor Name, Candidate Name, Session Date, Case, Difficulty, Rating on scoping questions, Rating on case setup and structure, Rating on quantitative ability (if not tested, rate 1), Rating on communication and confidence, Rating on business acumen and creativity, Overall strength and areas of improvement
   if (Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
-    
+
     candidateFeedbacks.forEach((feedback, index) => {
-      
+
       // Extract date - try multiple variations
-      let date = feedback['Session Date'] || feedback['sessionDate'] || feedback['SessionDate'] || 
-                 feedback['Date'] || feedback['date'] || '';
-      
+      let date = feedback['Session Date'] || feedback['sessionDate'] || feedback['SessionDate'] ||
+        feedback['Date'] || feedback['date'] || '';
+
       // Extract mentor name - try multiple variations
-      let mentorName = feedback['Mentor Name'] || feedback['mentorName'] || feedback['MentorName'] || 
-                      feedback['Mentor'] || feedback['mentor'] || '';
-      
+      let mentorName = feedback['Mentor Name'] || feedback['mentorName'] || feedback['MentorName'] ||
+        feedback['Mentor'] || feedback['mentor'] || '';
+
       // Extract candidate name - try multiple variations
-      let candidateName = feedback['Candidate Name'] || feedback['candidateName'] || feedback['CandidateName'] || 
-                         feedback['Candidate'] || feedback['candidate'] || '';
-      
+      let candidateName = feedback['Candidate Name'] || feedback['candidateName'] || feedback['CandidateName'] ||
+        feedback['Candidate'] || feedback['candidate'] || '';
+
       // If still not found, try to find by scanning all keys
       if (!date || !mentorName || !candidateName) {
         const allKeys = Object.keys(feedback);
@@ -1809,12 +1812,12 @@ function mergeFeedbacksWithSessions(
           }
         }
       }
-      
-      
+
+
       if (date && mentorName && candidateName) {
         // Normalize date format (remove time if present, handle various formats)
         let normalizedDate = date.toString().split(' ')[0].split('T')[0];
-        
+
         // Try to parse and reformat date to YYYY-MM-DD
         try {
           const dateObj = new Date(normalizedDate);
@@ -1824,22 +1827,22 @@ function mergeFeedbacksWithSessions(
         } catch (e) {
           // Keep original format if parsing fails
         }
-        
+
         // Create matching keys using date, mentor name, and candidate name
         // Key format: date|mentorName|candidateName
         const key1 = `${normalizedDate}|${mentorName.toString().trim().toLowerCase()}|${candidateName.toString().trim().toLowerCase()}`;
         candidateFeedbackMap.set(key1, feedback);
-        
+
         // Also try with original date format
         const originalDate = date.toString().split(' ')[0].split('T')[0];
         if (originalDate !== normalizedDate) {
           const key2 = `${originalDate}|${mentorName.toString().trim().toLowerCase()}|${candidateName.toString().trim().toLowerCase()}`;
           candidateFeedbackMap.set(key2, feedback);
         }
-        
+
       }
     });
-    
+
   }
 
   // Merge feedbacks into sessions - only use actual values from sheets
@@ -1847,7 +1850,7 @@ function mergeFeedbacksWithSessions(
   const mergedSessions = sessions.map((session) => {
     // Normalize session date for consistent matching - handle MM/DD/YYYY format
     let sessionDateNormalized = String(session.date).split(' ')[0].split('T')[0];
-    
+
     try {
       // Try MM/DD/YYYY format first (common in spreadsheets)
       const parts = sessionDateNormalized.split('/');
@@ -1873,56 +1876,56 @@ function mergeFeedbacksWithSessions(
     } catch (e) {
       // Keep original format if parsing fails
     }
-    
+
     // Try to match candidate feedbacks (mentor feedback about mentee)
     // Match using: date|mentorName|candidateName (since feedback sheet uses names, not emails)
     let mentorFeedback = null;
-    
+
     // Strategy 1: Try with normalized date, mentor name, and mentee name
     if (session.mentorName && session.studentName) {
       const nameKey = `${sessionDateNormalized}|${session.mentorName.trim().toLowerCase()}|${session.studentName.trim().toLowerCase()}`;
       mentorFeedback = candidateFeedbackMap.get(nameKey);
     }
-    
+
     // Strategy 2: Try with original date format
     if (!mentorFeedback && session.mentorName && session.studentName) {
       const originalDate = session.date.split(' ')[0].split('T')[0];
       const originalNameKey = `${originalDate}|${session.mentorName.trim().toLowerCase()}|${session.studentName.trim().toLowerCase()}`;
       mentorFeedback = candidateFeedbackMap.get(originalNameKey);
     }
-    
+
     // Strategy 3: Try alternative date formats
     if (!mentorFeedback && session.mentorName && session.studentName) {
       const altDate = sessionDateNormalized.replace(/-/g, '/');
       const altKey = `${altDate}|${session.mentorName.trim().toLowerCase()}|${session.studentName.trim().toLowerCase()}`;
       mentorFeedback = candidateFeedbackMap.get(altKey);
     }
-    
+
     // Strategy 4: Fallback to email-based matching if names don't work
     if (!mentorFeedback && session.mentorEmail && session.studentEmail) {
       const emailKey = `${sessionDateNormalized}|${session.mentorEmail.trim().toLowerCase()}|${session.studentEmail.trim().toLowerCase()}`;
       mentorFeedback = candidateFeedbackMap.get(emailKey);
     }
-    
+
     // Try to match mentee feedbacks (mentee feedback about mentor) - multiple strategies
     let studentFeedback = null;
-    
+
     // Try multiple matching strategies for mentor feedbacks
     const normalizedMentorName = session.mentorName ? String(session.mentorName).trim().toLowerCase() : '';
     const originalDate = String(session.date).split(' ')[0].split('T')[0];
-    
+
     // Strategy 1: Try with normalized date and mentor name (primary matching)
     if (normalizedMentorName) {
       const nameKey = `${sessionDateNormalized}|${normalizedMentorName}`;
       studentFeedback = mentorFeedbackMap.get(nameKey);
     }
-    
+
     // Strategy 2: Try with original date format and mentor name
     if (!studentFeedback && normalizedMentorName) {
       const originalNameKey = `${originalDate}|${normalizedMentorName}`;
       studentFeedback = mentorFeedbackMap.get(originalNameKey);
     }
-    
+
     // Strategy 3: Try with date in MM/DD/YYYY format
     if (!studentFeedback && normalizedMentorName) {
       try {
@@ -1936,28 +1939,28 @@ function mergeFeedbacksWithSessions(
         // Ignore
       }
     }
-    
+
     // Strategy 4: Try alternative date formats with mentor name
     if (!studentFeedback && normalizedMentorName) {
       const altDate = sessionDateNormalized.replace(/-/g, '/');
       const altKey = `${altDate}|${normalizedMentorName}`;
       studentFeedback = mentorFeedbackMap.get(altKey);
     }
-    
+
     // Strategy 5: Try with mentor email if available
     if (!studentFeedback && session.mentorEmail) {
       const normalizedEmail = String(session.mentorEmail).trim().toLowerCase();
       const emailKey = `${sessionDateNormalized}|${normalizedEmail}`;
       studentFeedback = mentorFeedbackMap.get(emailKey);
     }
-    
+
     // Strategy 6: Try with original date and mentor email
     if (!studentFeedback && session.mentorEmail) {
       const normalizedEmail = String(session.mentorEmail).trim().toLowerCase();
       const emailKey = `${originalDate}|${normalizedEmail}`;
       studentFeedback = mentorFeedbackMap.get(emailKey);
     }
-    
+
     // Strategy 7: Try with MM/DD/YYYY date and mentor email
     if (!studentFeedback && session.mentorEmail) {
       try {
@@ -1972,20 +1975,20 @@ function mergeFeedbacksWithSessions(
         // Ignore
       }
     }
-    
+
 
     let updatedSession = { ...session };
 
     if (mentorFeedback) {
       // Mentor feedback about mentee - populate mentorFeedback field
       // Use column L "Overall Rating" from "Candidate feedback form filled by mentors" sheet
-      
-      let overallRating = mentorFeedback['Overall Rating'] || 
-                         mentorFeedback['overall rating'] || 
-                         mentorFeedback['Overall rating'] ||
-                         mentorFeedback['overallRating'] ||
-                         null;
-      
+
+      let overallRating = mentorFeedback['Overall Rating'] ||
+        mentorFeedback['overall rating'] ||
+        mentorFeedback['Overall rating'] ||
+        mentorFeedback['overallRating'] ||
+        null;
+
       // If not found by column name, try by column position (L = 12th column, index 11)
       if ((!overallRating || overallRating === '' || overallRating === null)) {
         const feedbackKeys = Object.keys(mentorFeedback);
@@ -1993,7 +1996,7 @@ function mergeFeedbacksWithSessions(
           overallRating = mentorFeedback[feedbackKeys[11]];
         }
       }
-      
+
       // Parse and validate the rating
       if (overallRating !== null && overallRating !== undefined && overallRating !== '') {
         const numValue = parseFloat(String(overallRating).replace(/[^0-9.]/g, ''));
@@ -2001,10 +2004,10 @@ function mergeFeedbacksWithSessions(
           updatedSession.mentorFeedback = numValue.toFixed(2);
         }
       }
-      
+
       // Also merge comments if available (Overall strength and areas of improvement)
-      const commentsValue = mentorFeedback['Overall strength and areas of improvement'] || 
-                           mentorFeedback['Comments'] || mentorFeedback['comments'] || '';
+      const commentsValue = mentorFeedback['Overall strength and areas of improvement'] ||
+        mentorFeedback['Comments'] || mentorFeedback['comments'] || '';
       if (commentsValue && commentsValue.toString().trim()) {
         updatedSession.comments = commentsValue.toString().trim();
       }
@@ -2015,9 +2018,9 @@ function mergeFeedbacksWithSessions(
       // Column H contains: "On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?"
       // Try multiple variations of the column name
       const feedbackKeys = Object.keys(studentFeedback);
-      
+
       // First, try to get by column name (most reliable)
-      let ratingValue = 
+      let ratingValue =
         studentFeedback['On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?'] ||
         studentFeedback['"On a scale of 1 to 5 (5 being the best), how would you rate the overall experience of the session?"'] ||
         studentFeedback['On a scale of 1 to 5'] ||
@@ -2027,12 +2030,12 @@ function mergeFeedbacksWithSessions(
         studentFeedback['Overall Experience Rating'] ||
         studentFeedback['Experience Rating'] ||
         null;
-      
+
       // If not found by name, try by column position (H = 8th column, index 7)
       if ((!ratingValue || ratingValue === '' || ratingValue === null) && feedbackKeys.length >= 8) {
         ratingValue = studentFeedback[feedbackKeys[7]];
       }
-      
+
       // Also try other column positions as fallback (scan all columns for numeric ratings)
       if ((!ratingValue || ratingValue === '' || ratingValue === null) && feedbackKeys.length > 0) {
         // Try common positions for rating columns
@@ -2047,46 +2050,46 @@ function mergeFeedbacksWithSessions(
           }
         }
       }
-      
+
       const finalRating = ratingValue || '';
-      
+
       if (finalRating && finalRating.toString().trim()) {
         const ratingStr = finalRating.toString().trim();
         // Extract numeric value if it's in a format like "5" or "5.0" or "5 out of 5"
         const numericRating = parseFloat(ratingStr.replace(/[^0-9.]/g, ''));
         if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
           updatedSession.studentFeedback = numericRating.toString();
-          
+
         }
       }
-      
+
       // Store additional feedback details in comments
       const feedbackDetails: string[] = [];
-      
+
       // Add "Did the mentor join the session on time?"
       const onTime = studentFeedback['Did the mentor join the session on time?'] || '';
       if (onTime && onTime.toString().trim()) {
         feedbackDetails.push(`Joined on time: ${onTime}`);
       }
-      
+
       // Add facilitation style rating
       const facilitationStyle = studentFeedback['How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)'] || '';
       if (facilitationStyle && facilitationStyle.toString().trim()) {
         feedbackDetails.push(`Facilitation style: ${facilitationStyle}`);
       }
-      
+
       // Add quality of feedback rating
       const feedbackQuality = studentFeedback['How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)'] || '';
       if (feedbackQuality && feedbackQuality.toString().trim()) {
         feedbackDetails.push(`Feedback quality: ${feedbackQuality}`);
       }
-      
+
       // Add suggestions
       const suggestions = studentFeedback['How could it have been made better and any suggestions for the gradnext team or mentor'] || '';
       if (suggestions && suggestions.toString().trim()) {
         feedbackDetails.push(`Suggestions: ${suggestions}`);
       }
-      
+
       // Merge comments (prefer detailed feedback comments if both exist)
       if (feedbackDetails.length > 0) {
         const existingComments = updatedSession.comments || '';
@@ -2101,7 +2104,7 @@ function mergeFeedbacksWithSessions(
 
     return updatedSession;
   });
-  
+
   return mergedSessions;
 }
 
@@ -2110,13 +2113,13 @@ function mergeFeedbacksWithSessions(
  */
 export function parseStudentData(menteeData: any[]): Student[] {
   if (!Array.isArray(menteeData) || menteeData.length === 0) return [];
-  
+
   // Check if first row contains metadata (like "Responder Link", "Edit Link")
   let startIndex = 0;
   if (menteeData.length > 0) {
     const firstRowKeys = Object.keys(menteeData[0]);
-    const hasMetadata = firstRowKeys.some(key => 
-      key.toLowerCase().includes('responder') || 
+    const hasMetadata = firstRowKeys.some(key =>
+      key.toLowerCase().includes('responder') ||
       key.toLowerCase().includes('edit link')
     );
     if (hasMetadata && menteeData.length > 1) {
@@ -2153,10 +2156,10 @@ export function parseSpreadsheetData(
   candidateFeedbacks?: any
 ): Session[] {
   const sessions = parseSessionData(Array.isArray(sessionData) ? sessionData : []);
-  
+
   const mentorFeedbackArray = Array.isArray(mentorFeedbacks) ? mentorFeedbacks : [];
   const candidateFeedbackArray = Array.isArray(candidateFeedbacks) ? candidateFeedbacks : [];
-  
+
   if (mentorFeedbackArray.length > 0 || candidateFeedbackArray.length > 0) {
     const merged = mergeFeedbacksWithSessions(sessions, mentorFeedbackArray, candidateFeedbackArray);
     return merged;

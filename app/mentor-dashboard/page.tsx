@@ -640,8 +640,41 @@ export default function MentorDashboard() {
       return num;
     };
 
-    const pick = (fb: any, key: string) => {
-      const v = fb[key];
+    const pick = (fb: any, key: string, index?: number) => {
+      // Try exact key
+      let v = fb[key];
+
+      // Try key with question mark
+      if (v === undefined || v === null || v === '') {
+        v = fb[key + '?'];
+      }
+
+      // Try case-insensitive matching if still not found
+      if (v === undefined || v === null || v === '') {
+        const lowerKey = key.toLowerCase();
+        for (const k in fb) {
+          const kLower = k.toLowerCase().trim();
+          if (kLower === lowerKey || kLower === lowerKey + '?' || kLower.includes(lowerKey.slice(0, 30))) {
+            v = fb[k];
+            if (v !== undefined && v !== null && String(v).trim() !== '') break;
+          }
+        }
+      }
+
+      // Try index-based fallback
+      if ((v === undefined || v === null || v === '') && index !== undefined) {
+        // Try direct _colN key from googleSheets util
+        if (fb[`_col${index}`] !== undefined && fb[`_col${index}`] !== null && fb[`_col${index}`].trim() !== '') {
+          v = fb[`_col${index}`];
+        } else {
+          // Fallback to Object.keys if _colN not present
+          const keys = Object.keys(fb);
+          if (keys.length > index) {
+            v = fb[keys[index]];
+          }
+        }
+      }
+
       if (v === undefined || v === null) return '';
       return String(v).trim();
     };
@@ -654,16 +687,18 @@ export default function MentorDashboard() {
         sortDate: parsed?.getTime() ?? 0,
         dateStr,
         overall: getOverallRating(fb),
-        onTime: pick(fb, 'Did the mentor join the session on time?'),
+        onTime: pick(fb, 'Did the mentor join the session on time?', 4),
         facilitation: pick(
           fb,
-          'How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)'
+          'How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)',
+          5
         ),
         feedbackQuality: pick(
           fb,
-          'How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)'
+          'How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)',
+          6
         ),
-        suggestions: pick(fb, 'How could it have been made better and any suggestions for the gradnext team or mentor'),
+        suggestions: pick(fb, 'How could it have been made better and any suggestions for the gradnext team or mentor', 8),
       };
     });
 
@@ -1265,8 +1300,8 @@ export default function MentorDashboard() {
                                   <Star
                                     key={star}
                                     className={`w-3 h-3 ${star <= Math.round(mentor.avgRating)
-                                        ? 'text-yellow-400'
-                                        : 'text-gray-600'
+                                      ? 'text-yellow-400'
+                                      : 'text-gray-600'
                                       }`}
                                     fill={star <= Math.round(mentor.avgRating) ? '#FACC15' : 'none'}
                                   />
@@ -1491,8 +1526,13 @@ export default function MentorDashboard() {
                       <td className="px-6 py-4 text-sm text-gray-300">
                         {r.feedbackQuality || 'N/A'}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-300">
-                        {r.suggestions ? (r.suggestions.length > 90 ? `${r.suggestions.slice(0, 90)}…` : r.suggestions) : 'N/A'}
+                      <td className="px-6 py-4 text-sm text-gray-300 max-w-xs xl:max-w-md">
+                        <div
+                          className="truncate hover:whitespace-normal hover:bg-[#1A3636] hover:p-2 hover:rounded hover:absolute hover:z-10 hover:shadow-xl hover:border hover:border-[#3A5A5A] transition-all cursor-help"
+                          title={r.suggestions || 'No suggestions provided'}
+                        >
+                          {r.suggestions || 'N/A'}
+                        </div>
                       </td>
                     </tr>
                   ))

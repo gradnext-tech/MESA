@@ -10,7 +10,7 @@ interface SheetData {
 function getGoogleSheetsClient() {
   // Parse the service account credentials from environment variable
   const credentialsString = process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
-  
+
   if (!credentialsString) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_CREDENTIALS environment variable not found');
   }
@@ -56,10 +56,10 @@ export async function fetchSheetData(
     if (!sheet || !sheet.properties?.title) {
       return [];
     }
-    
+
     // Use the exact sheet name from the spreadsheet (preserves case and any special characters)
     const exactSheetName = sheet.properties.title;
-    
+
     // Google Sheets API: sheet names with spaces need to be wrapped in single quotes
     // Escape single quotes in the sheet name by doubling them
     // Use A:ZZ to cover more columns (up to column ZZ)
@@ -85,27 +85,27 @@ export async function fetchSheetData(
     // For Google Forms responses, headers are in row 2, not row 1
     // Row 1 typically contains form metadata
     const data: SheetData[] = [];
-    
+
     let headerRowIndex = 0;
     let actualHeaders = rows[0];
-    
+
     // Check if this is a Google Form sheet by sheet name or by checking for metadata in row 1
-    const isFormSheet = sheetName.toLowerCase().includes('feedback') || 
-                       sheetName.toLowerCase().includes('form') ||
-                       sheetName.toLowerCase().includes('response');
-    
+    const isFormSheet = sheetName.toLowerCase().includes('feedback') ||
+      sheetName.toLowerCase().includes('form') ||
+      sheetName.toLowerCase().includes('response');
+
     if (rows.length > 1) {
       const firstRowKeys = rows[0].map(h => String(h || '').toLowerCase());
-      
+
       // Check if first row looks like metadata (contains "Responder Link", "Edit Link", or other form metadata)
-      const hasMetadataKeys = firstRowKeys.some(k => 
-        k.includes('responder link') || 
+      const hasMetadataKeys = firstRowKeys.some(k =>
+        k.includes('responder link') ||
         k.includes('edit link') ||
         k.includes('responder') ||
         k.includes('edit') ||
         (k === 'responder' && firstRowKeys.some(k2 => k2.includes('link')))
       );
-      
+
       // For form sheets OR if metadata detected, use row 2 as headers
       if ((isFormSheet || hasMetadataKeys) && rows.length > 1) {
         headerRowIndex = 1;
@@ -121,7 +121,7 @@ export async function fetchSheetData(
       // No rows at all
       return [];
     }
-    
+
     // Validate headers
     if (!actualHeaders || actualHeaders.length === 0 || actualHeaders.every(h => !h || h.trim() === '')) {
       return [];
@@ -130,10 +130,10 @@ export async function fetchSheetData(
     // Convert rows to objects using headers as keys
     // Start from after the header row
     const dataStartIndex = headerRowIndex + 1;
-    
+
     for (let i = dataStartIndex; i < rows.length; i++) {
       const row = rows[i];
-      
+
       // Skip completely empty rows
       if (!row || row.length === 0 || row.every((cell: any) => {
         if (cell === undefined || cell === null) return true;
@@ -142,23 +142,22 @@ export async function fetchSheetData(
       })) {
         continue;
       }
-      
+
       // Create a fresh object for each row to avoid reference issues
       const rowData: SheetData = {};
 
       // Map each header to its corresponding cell value
       actualHeaders.forEach((header, index) => {
+        // Get the actual cell value for this row
+        const cellValue = row[index];
+        const stringValue = (cellValue !== undefined && cellValue !== null) ? String(cellValue).trim() : '';
+
+        // Always add index-based key for robust access
+        rowData[`_col${index}`] = stringValue;
+
         if (header && String(header).trim() !== '') {
-          // Get the actual cell value for this row
-          const cellValue = row[index];
-          
           // Convert to string and trim, or use empty string if null/undefined
-          if (cellValue !== undefined && cellValue !== null) {
-            const stringValue = String(cellValue).trim();
-            rowData[String(header)] = stringValue;
-          } else {
-            rowData[String(header)] = '';
-          }
+          rowData[String(header)] = stringValue;
         }
       });
 
@@ -169,7 +168,7 @@ export async function fetchSheetData(
         }
         return value !== null && value !== undefined && value !== '';
       });
-      
+
       if (hasData) {
         data.push(rowData);
       }
@@ -254,7 +253,7 @@ export async function fetchStudentCredentials(feedbacksSpreadsheetId: string) {
 export async function validateSheetsAccess(spreadsheetId: string): Promise<boolean> {
   try {
     const sheets = getGoogleSheetsClient();
-    
+
     const response = await sheets.spreadsheets.get({
       spreadsheetId,
     });

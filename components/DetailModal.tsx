@@ -976,46 +976,86 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                       ) : null;
                                     })()}
 
-                                    {fullFeedback ? (
-                                      <div className="space-y-3">
-                                        {[
-                                          { key: 'Did the mentor join the session on time?', label: 'Joined on time' },
-                                          { key: 'How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)', label: 'Facilitation style' },
-                                          { key: 'How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)', label: 'Feedback quality' },
-                                          { key: 'How could it have been made better and any suggestions for the gradnext team or mentor', label: 'Suggestions' },
-                                        ].map(({ key, label }) => {
-                                          const val = fullFeedback[key];
-                                          if (!val || !String(val).trim()) return null;
-                                          return (
-                                            <div key={key} className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                              <p className="text-xs text-gray-400 mb-1">{label}</p>
-                                              <p className="text-sm text-white whitespace-pre-wrap">{String(val).trim()}</p>
-                                            </div>
-                                          );
-                                        })}
+                                    {fullFeedback ? (() => {
+                                      const pickValue = (fb: any, key: string, index?: number) => {
+                                        // Try exact key
+                                        let v = fb[key];
 
-                                        {/* Show the rest of the feedback fields */}
-                                        <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
-                                          <p className="text-xs text-gray-400 mb-2">All feedback fields</p>
-                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            {Object.entries(fullFeedback)
-                                              .filter(([k, v]) => {
-                                                if (!v || !String(v).trim()) return false;
-                                                const key = k.toLowerCase();
-                                                // Hide noisy metadata columns
-                                                if (key.includes('responder') || key.includes('edit link')) return false;
-                                                return true;
-                                              })
-                                              .map(([k, v]) => (
-                                                <div key={k} className="p-2 rounded-lg" style={{ backgroundColor: '#1A3636' }}>
-                                                  <p className="text-[11px] text-gray-400 mb-1">{k}</p>
-                                                  <p className="text-sm text-white whitespace-pre-wrap break-words">{String(v).trim()}</p>
-                                                </div>
-                                              ))}
+                                        // Try key with question mark
+                                        if (v === undefined || v === null || v === '') {
+                                          v = fb[key + '?'];
+                                        }
+
+                                        // Try case-insensitive matching if still not found
+                                        if (v === undefined || v === null || v === '') {
+                                          const lowerKey = key.toLowerCase();
+                                          for (const k in fb) {
+                                            const kLower = k.toLowerCase().trim();
+                                            if (kLower === lowerKey || kLower === lowerKey + '?' || kLower.includes(lowerKey.slice(0, 30))) {
+                                              v = fb[k];
+                                              if (v !== undefined && v !== null && String(v).trim() !== '') break;
+                                            }
+                                          }
+                                        }
+
+                                        // Try index-based fallback
+                                        if ((v === undefined || v === null || v === '') && index !== undefined) {
+                                          // Try direct _colN key from googleSheets util
+                                          if (fb[`_col${index}`] !== undefined && fb[`_col${index}`] !== null && fb[`_col${index}`].trim() !== '') {
+                                            v = fb[`_col${index}`];
+                                          } else {
+                                            // Fallback to Object.keys if _colN not present
+                                            const keys = Object.keys(fb);
+                                            if (keys.length > index) {
+                                              v = fb[keys[index]];
+                                            }
+                                          }
+                                        }
+
+                                        return v;
+                                      };
+
+                                      return (
+                                        <div className="space-y-3">
+                                          {[
+                                            { key: 'Did the mentor join the session on time?', label: 'Joined on time', index: 4 },
+                                            { key: 'How would you rate the facilitation style of the mentor? (Did the mentor manage time effectively, paced the session well etc.)', label: 'Facilitation style', index: 5 },
+                                            { key: 'How would you rate the quality of the feedback provided? (Did the mentor provide specific, actionable feedback?)', label: 'Feedback quality', index: 6 },
+                                            { key: 'How could it have been made better and any suggestions for the gradnext team or mentor', label: 'Suggestions', index: 8 },
+                                          ].map(({ key, label, index: colIdx }) => {
+                                            const val = pickValue(fullFeedback, key, colIdx);
+                                            if (!val || !String(val).trim()) return null;
+                                            return (
+                                              <div key={key} className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                                <p className="text-xs text-gray-400 mb-1">{label}</p>
+                                                <p className="text-sm text-white whitespace-pre-wrap">{String(val).trim()}</p>
+                                              </div>
+                                            );
+                                          })}
+
+                                          {/* Show the rest of the feedback fields */}
+                                          <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <p className="text-xs text-gray-400 mb-2">All feedback fields</p>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                              {Object.entries(fullFeedback)
+                                                .filter(([k, v]) => {
+                                                  if (!v || !String(v).trim()) return false;
+                                                  const key = k.toLowerCase();
+                                                  // Hide noisy metadata columns
+                                                  if (key.includes('responder') || key.includes('edit link')) return false;
+                                                  return true;
+                                                })
+                                                .map(([k, v]) => (
+                                                  <div key={k} className="p-2 rounded-lg" style={{ backgroundColor: '#1A3636' }}>
+                                                    <p className="text-[11px] text-gray-400 mb-1">{k}</p>
+                                                    <p className="text-sm text-white whitespace-pre-wrap break-words">{String(v).trim()}</p>
+                                                  </div>
+                                                ))}
+                                            </div>
                                           </div>
                                         </div>
-                                      </div>
-                                    ) : (
+                                      );
+                                    })() : (
                                       <div className="p-3 rounded-lg text-center" style={{ backgroundColor: '#2A4A4A' }}>
                                         <p className="text-sm text-gray-400">No feedback available for this session</p>
                                       </div>
