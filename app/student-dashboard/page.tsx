@@ -1115,7 +1115,8 @@ export default function StudentDashboard() {
                   };
 
                   // Helper function to get full feedback object for expanded view
-                  const getFullFeedback = (session: Session): Record<string, unknown> | null => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const getFullFeedback = (session: Session): any | null => {
                     if (!candidateFeedbacks || candidateFeedbacks.length === 0) return null;
 
                     const sessionDate = session.date;
