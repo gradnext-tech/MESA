@@ -7,7 +7,7 @@ import { calculateStudentMetrics, getDetailedCandidateAnalytics, parseSessionDat
 import { getApiUrl } from '@/utils/api';
 import { MetricCard } from '@/components/MetricCard';
 import { DetailModal } from '@/components/DetailModal';
-import { CandidateSessionStats } from '@/types';
+import { CandidateSessionStats, Session } from '@/types';
 import {
   Users,
   TrendingUp,
@@ -22,6 +22,7 @@ import {
   Search,
   CheckCircle,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -203,6 +204,7 @@ export default function StudentDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<CandidateSessionStats | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [expandedSessionIndex, setExpandedSessionIndex] = useState<number | null>(null);
 
   const { candidateFeedbacks, setMentorFeedbacks } = useData();
 
@@ -970,26 +972,14 @@ export default function StudentDashboard() {
           )}
         </div>
 
-        {/* Individual Student Analytics */}
+        {/* Session Logs */}
         <div className="rounded-xl shadow-md border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
           <div className="p-6 border-b" style={{ borderColor: '#3A5A5A' }}>
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-white">Individual Student Analytics</h3>
-                <p className="text-xs text-gray-400 mt-1">Your stats summary</p>
+                <h3 className="text-lg font-semibold text-white">Session Logs</h3>
+                <p className="text-xs text-gray-400 mt-1">Click on a session to view detailed feedback</p>
               </div>
-              {personalCandidateAnalytics && (
-                <button
-                  onClick={() => {
-                    setSelectedStudent(personalCandidateAnalytics);
-                    setIsModalOpen(true);
-                  }}
-                  className="px-4 py-2 rounded-lg text-sm font-medium"
-                  style={{ backgroundColor: '#1A3636', color: '#86EFAC', border: '1px solid #3A5A5A' }}
-                >
-                  View session log
-                </button>
-              )}
             </div>
           </div>
 
@@ -997,45 +987,410 @@ export default function StudentDashboard() {
             <table className="w-full">
               <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Metric</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Value</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mentor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Rating</th>
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
-                {personalCandidateAnalytics ? (
-                  <>
-                    <tr>
-                      <td className="px-6 py-4 text-sm text-gray-300">Completed sessions</td>
-                      <td className="px-6 py-4 text-sm text-white">{personalCandidateAnalytics.completedSessions}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-6 py-4 text-sm text-gray-300">Completion rate</td>
-                      <td className="px-6 py-4 text-sm text-white">{personalCandidateAnalytics.completionRate.toFixed(1)}%</td>
-                    </tr>
-                    <tr>
-                      <td className="px-6 py-4 text-sm text-gray-300">Avg feedback</td>
-                      <td className="px-6 py-4 text-sm text-white">
-                        {personalCandidateAnalytics.avgFeedback > 0 ? personalCandidateAnalytics.avgFeedback.toFixed(2) : 'N/A'}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-6 py-4 text-sm text-gray-300">Mentors worked with</td>
-                      <td className="px-6 py-4 text-sm text-white">{personalCandidateAnalytics.uniqueMentors}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-6 py-4 text-sm text-gray-300">Disruptions</td>
-                      <td className="px-6 py-4 text-sm text-white">
-                        {personalCandidateAnalytics.sessionsCancelled + personalCandidateAnalytics.sessionsRescheduled + personalCandidateAnalytics.sessionsNoShow}
-                      </td>
-                    </tr>
-                  </>
-                ) : (
-                  <tr>
-                    <td colSpan={2} className="px-6 py-8 text-center text-gray-400">
-                      No analytics available
-                    </td>
-                  </tr>
-                )}
+                {(() => {
+                  // Get personal student sessions sorted by date (most recent first)
+                  const email = (loggedInEmail || '').trim().toLowerCase();
+                  const personalSessions = sessions
+                    .filter(s => {
+                      const sessionEmail = (s.studentEmail || '').trim().toLowerCase();
+                      if (sessionEmail !== email) return false;
+                      // Filter out mentor-side disruptions
+                      const normalized = normalizeSessionStatus(s.sessionStatus);
+                      return (
+                        normalized !== 'mentor_cancelled' &&
+                        normalized !== 'mentor_no_show' &&
+                        normalized !== 'mentor_rescheduled' &&
+                        normalized !== 'admin_cancelled' &&
+                        normalized !== 'admin_rescheduled'
+                      );
+                    })
+                    .sort((a, b) => {
+                      const dateA = parseSessionDate(a.date);
+                      const dateB = parseSessionDate(b.date);
+                      if (!dateA || !dateB) return 0;
+                      return dateB.getTime() - dateA.getTime();
+                    });
+
+                  if (personalSessions.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                          No sessions found
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  // Helper function to get feedback rating for a session
+                  const getSessionRating = (session: Session): number | null => {
+                    // First try candidateFeedbacks
+                    if (candidateFeedbacks && candidateFeedbacks.length > 0) {
+                      const sessionDate = session.date;
+                      const mentorName = (session.mentorName || '').trim();
+                      const candidateName = (session.studentName || '').trim();
+                      const candidateEmail = (session.studentEmail || '').trim();
+                      const sessionDateParsed = parseSessionDate(sessionDate);
+
+                      const matchedFeedback = candidateFeedbacks.find(feedback => {
+                        const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+                        const feedbackMentorName = (feedback['Mentor Name'] || feedback['mentorName'] || feedback['Mentor'] || feedback['mentor'] || '').trim();
+                        const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim();
+                        const feedbackCandidateEmail = (feedback['Candidate Email'] || feedback['candidateEmail'] || feedback['Candidate Email ID'] || feedback['Mentee Email'] || feedback['menteeEmail'] || '').trim();
+
+                        const normalizedCandidateName = candidateName.toLowerCase().trim();
+                        const normalizedCandidateEmail = candidateEmail.toLowerCase().trim();
+                        const normalizedMentorName = mentorName.toLowerCase().trim();
+                        const normalizedFeedbackCandidateName = feedbackCandidateName.toLowerCase().trim();
+                        const normalizedFeedbackCandidateEmail = feedbackCandidateEmail.toLowerCase().trim();
+                        const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
+
+                        const candidateMatch =
+                          (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
+                          (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail);
+
+                        const mentorMatch =
+                          normalizedMentorName && normalizedFeedbackMentorName && (
+                            normalizedFeedbackMentorName === normalizedMentorName ||
+                            normalizedFeedbackMentorName.includes(normalizedMentorName) ||
+                            normalizedMentorName.includes(normalizedFeedbackMentorName)
+                          );
+
+                        let dateMatch = false;
+                        if (sessionDateParsed && feedbackDate) {
+                          const feedbackDateParsed = parseSessionDate(feedbackDate);
+                          if (feedbackDateParsed && sessionDateParsed) {
+                            dateMatch =
+                              sessionDateParsed.getFullYear() === feedbackDateParsed.getFullYear() &&
+                              sessionDateParsed.getMonth() === feedbackDateParsed.getMonth() &&
+                              sessionDateParsed.getDate() === feedbackDateParsed.getDate();
+                          }
+                        }
+
+                        return candidateMatch && (dateMatch || mentorMatch);
+                      });
+
+                      if (matchedFeedback) {
+                        let averageValue = matchedFeedback['Overall Rating'] ||
+                          matchedFeedback['overall rating'] ||
+                          matchedFeedback['Overall rating'] ||
+                          matchedFeedback['overallRating'] ||
+                          matchedFeedback['Average'] ||
+                          matchedFeedback['average'];
+
+                        if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
+                          const allKeys = Object.keys(matchedFeedback);
+                          if (allKeys.length > 11) {
+                            averageValue = matchedFeedback[allKeys[11]];
+                          }
+                        }
+
+                        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+                          const avgRating = parseFloat(String(averageValue));
+                          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+                            return avgRating;
+                          }
+                        }
+                      }
+                    }
+
+                    // Fallback to session.mentorFeedback
+                    if (session.mentorFeedback) {
+                      const value = typeof session.mentorFeedback === 'number'
+                        ? session.mentorFeedback
+                        : parseFloat(String(session.mentorFeedback));
+                      if (!isNaN(value) && value > 0 && value <= 5) {
+                        return value;
+                      }
+                    }
+
+                    return null;
+                  };
+
+                  // Helper function to get full feedback object for expanded view
+                  const getFullFeedback = (session: Session): Record<string, unknown> | null => {
+                    if (!candidateFeedbacks || candidateFeedbacks.length === 0) return null;
+
+                    const sessionDate = session.date;
+                    const mentorName = (session.mentorName || '').trim();
+                    const candidateName = (session.studentName || '').trim();
+                    const candidateEmail = (session.studentEmail || '').trim();
+                    const sessionDateParsed = parseSessionDate(sessionDate);
+
+                    const matchedFeedback = candidateFeedbacks.find(feedback => {
+                      const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+                      const feedbackMentorName = (feedback['Mentor Name'] || feedback['mentorName'] || feedback['Mentor'] || feedback['mentor'] || '').trim();
+                      const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim();
+                      const feedbackCandidateEmail = (feedback['Candidate Email'] || feedback['candidateEmail'] || feedback['Candidate Email ID'] || feedback['Mentee Email'] || feedback['menteeEmail'] || '').trim();
+
+                      const normalizedCandidateName = candidateName.toLowerCase().trim();
+                      const normalizedCandidateEmail = candidateEmail.toLowerCase().trim();
+                      const normalizedMentorName = mentorName.toLowerCase().trim();
+                      const normalizedFeedbackCandidateName = feedbackCandidateName.toLowerCase().trim();
+                      const normalizedFeedbackCandidateEmail = feedbackCandidateEmail.toLowerCase().trim();
+                      const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
+
+                      const candidateMatch =
+                        (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
+                        (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail);
+
+                      const mentorMatch =
+                        normalizedMentorName && normalizedFeedbackMentorName && (
+                          normalizedFeedbackMentorName === normalizedMentorName ||
+                          normalizedFeedbackMentorName.includes(normalizedMentorName) ||
+                          normalizedMentorName.includes(normalizedFeedbackMentorName)
+                        );
+
+                      let dateMatch = false;
+                      if (sessionDateParsed && feedbackDate) {
+                        const feedbackDateParsed = parseSessionDate(feedbackDate);
+                        if (feedbackDateParsed && sessionDateParsed) {
+                          dateMatch =
+                            sessionDateParsed.getFullYear() === feedbackDateParsed.getFullYear() &&
+                            sessionDateParsed.getMonth() === feedbackDateParsed.getMonth() &&
+                            sessionDateParsed.getDate() === feedbackDateParsed.getDate();
+                        }
+                      }
+
+                      return candidateMatch && (dateMatch || mentorMatch);
+                    });
+
+                    return matchedFeedback || null;
+                  };
+
+                  return personalSessions.map((session, index) => {
+                    const rating = getSessionRating(session);
+                    const isExpanded = expandedSessionIndex === index;
+                    const fullFeedback = isExpanded ? getFullFeedback(session) : null;
+
+                    const rawStatus = (session.sessionStatus && String(session.sessionStatus).trim())
+                      ? session.sessionStatus
+                      : 'Upcoming';
+                    const displayStatus = rawStatus.toLowerCase() === 'unknown' ? 'Upcoming' : rawStatus;
+
+                    return (
+                      <React.Fragment key={index}>
+                        <tr
+                          className="transition-colors cursor-pointer"
+                          style={{ borderColor: '#3A5A5A' }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
+                          onClick={() => setExpandedSessionIndex(isExpanded ? null : index)}
+                        >
+                          <td className="px-6 py-4 text-sm text-white">
+                            {(() => {
+                              const parsedDate = parseSessionDate(session.date);
+                              if (parsedDate) {
+                                return format(parsedDate, 'MMM dd, yyyy');
+                              }
+                              return session.date;
+                            })()}
+                          </td>
+                          <td className="px-6 py-4">
+                            {session.sessionType ? (
+                              <span className="px-2 py-1 text-xs rounded-full text-white" style={{
+                                backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E'
+                              }}>
+                                {session.sessionType}
+                              </span>
+                            ) : (
+                              <span className="text-sm text-gray-400">N/A</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-white">{session.mentorName || 'N/A'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-300">{session.time || 'N/A'}</td>
+                          <td className="px-6 py-4">
+                            {rating !== null ? (
+                              <div className="flex items-center space-x-1">
+                                <Star className="w-4 h-4 text-[#86EFAC]" />
+                                <span className="text-sm text-white">{rating.toFixed(1)}</span>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-400">N/A</span>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-4" style={{ backgroundColor: '#1A3636' }}>
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-md font-semibold text-white">Session Details</h4>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedSessionIndex(null);
+                                    }}
+                                    className="text-gray-400 hover:text-white"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+
+                                {/* Session Information */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Date</p>
+                                    <p className="text-sm text-white">
+                                      {(() => {
+                                        const parsedDate = parseSessionDate(session.date);
+                                        if (parsedDate) {
+                                          return format(parsedDate, 'MMM dd, yyyy');
+                                        }
+                                        return session.date;
+                                      })()}
+                                    </p>
+                                  </div>
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Time</p>
+                                    <p className="text-sm text-white">{session.time || 'N/A'}</p>
+                                  </div>
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Mentor</p>
+                                    <p className="text-sm text-white">{session.mentorName || 'N/A'}</p>
+                                  </div>
+                                  <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                    <p className="text-xs text-gray-400 mb-1">Status</p>
+                                    <div className="flex items-center space-x-2">
+                                      {displayStatus.toLowerCase() === 'completed' ? (
+                                        <CheckCircle className="w-4 h-4 text-[#22C55E]" />
+                                      ) : displayStatus.toLowerCase() === 'cancelled' ? (
+                                        <XCircle className="w-4 h-4 text-red-400" />
+                                      ) : displayStatus.toLowerCase().includes('no show') ? (
+                                        <AlertCircle className="w-4 h-4 text-orange-400" />
+                                      ) : (
+                                        <AlertCircle className="w-4 h-4 text-gray-400" />
+                                      )}
+                                      <span className={`text-sm ${
+                                        displayStatus.toLowerCase() === 'completed' ? 'text-[#22C55E]' :
+                                        displayStatus.toLowerCase() === 'cancelled' ? 'text-red-400' :
+                                        displayStatus.toLowerCase().includes('no show') ? 'text-orange-400' :
+                                        'text-gray-400'
+                                      }`}>
+                                        {displayStatus}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {session.sessionType && (
+                                    <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                      <p className="text-xs text-gray-400 mb-1">Session Type</p>
+                                      <span className="px-2 py-1 text-xs rounded-full text-white" style={{
+                                        backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E'
+                                      }}>
+                                        {session.sessionType}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {session.inviteTitle && (
+                                    <div className="p-3 rounded-lg md:col-span-2" style={{ backgroundColor: '#2A4A4A' }}>
+                                      <p className="text-xs text-gray-400 mb-1">Session Title</p>
+                                      <p className="text-sm text-white">{session.inviteTitle}</p>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Feedback Section */}
+                                {fullFeedback ? (
+                                  <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
+                                    <h5 className="text-sm font-semibold text-white mb-3">Feedback Details</h5>
+                                    
+                                    {/* Overall Rating */}
+                                    {(() => {
+                                      const overallRating = fullFeedback['Overall Rating'] || fullFeedback['overall rating'] || fullFeedback['Average'] || fullFeedback['average'];
+                                      if (overallRating) {
+                                        return (
+                                          <div className="flex items-center space-x-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <Star className="w-5 h-5 text-[#22C55E]" />
+                                            <span className="text-lg font-bold text-white">
+                                              Overall Rating: {parseFloat(String(overallRating)).toFixed(2)}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+
+                                    {/* Case and Difficulty */}
+                                    {((fullFeedback['Case'] || fullFeedback['case']) || (fullFeedback['Difficulty'] || fullFeedback['difficulty'])) && (
+                                      <div className="grid grid-cols-2 gap-3 mb-3">
+                                        {(fullFeedback['Case'] || fullFeedback['case']) && (
+                                          <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <p className="text-xs text-gray-400 mb-1">Case</p>
+                                            <p className="text-sm text-white">{String(fullFeedback['Case'] || fullFeedback['case'])}</p>
+                                          </div>
+                                        )}
+                                        {(fullFeedback['Difficulty'] || fullFeedback['difficulty']) && (
+                                          <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <p className="text-xs text-gray-400 mb-1">Difficulty</p>
+                                            <p className="text-sm text-white">{String(fullFeedback['Difficulty'] || fullFeedback['difficulty'])}</p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Rating Parameters */}
+                                    <div className="space-y-2 mb-3">
+                                      <p className="text-sm font-semibold text-white mb-2">Rating Parameters:</p>
+                                      {[
+                                        { key: 'Rating on scoping questions', label: 'Scoping Questions' },
+                                        { key: 'Rating on case setup and structure ', label: 'Case Setup & Structure' },
+                                        { key: 'Rating on quantitative ability (if not tested, rate 1)', label: 'Quantitative Ability' },
+                                        { key: 'Rating on communication and confidence', label: 'Communication & Confidence' },
+                                        { key: 'Rating on business acumen and creativity', label: 'Business Acumen & Creativity' },
+                                      ].map(({ key, label }) => {
+                                        const ratingValue = fullFeedback[key];
+                                        if (!ratingValue && ratingValue !== 0) return null;
+                                        const ratingNum = parseFloat(String(ratingValue));
+                                        if (isNaN(ratingNum)) return null;
+
+                                        return (
+                                          <div key={key} className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                            <span className="text-sm text-gray-300">{label}</span>
+                                            <div className="flex items-center space-x-2">
+                                              <Star className="w-4 h-4 text-[#86EFAC]" />
+                                              <span className="text-sm font-medium text-white">{ratingNum.toFixed(1)}</span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* Comments */}
+                                    {(fullFeedback['Overall strength and areas of improvement'] ||
+                                      fullFeedback['Comments'] ||
+                                      fullFeedback['comments']) && (
+                                        <div className="p-3 rounded-lg" style={{ backgroundColor: '#2A4A4A' }}>
+                                          <p className="text-sm font-semibold text-white mb-2">Overall Strength and Areas of Improvement:</p>
+                                          <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                                            {String(fullFeedback['Overall strength and areas of improvement'] ||
+                                              fullFeedback['Comments'] ||
+                                              fullFeedback['comments'])}
+                                          </p>
+                                        </div>
+                                      )}
+                                  </div>
+                                ) : (
+                                  <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
+                                    <div className="p-3 rounded-lg text-center" style={{ backgroundColor: '#2A4A4A' }}>
+                                      <p className="text-sm text-gray-400">No feedback available for this session</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
