@@ -1031,6 +1031,12 @@ export default function StudentDashboard() {
 
                   // Helper function to get feedback rating for a session
                   const getSessionRating = (session: Session): number | null => {
+                    // Show rating ONLY for completed sessions
+                    const normalizedStatus = normalizeSessionStatus(session.sessionStatus);
+                    if (normalizedStatus !== 'completed') {
+                      return null;
+                    }
+
                     // First try candidateFeedbacks
                     if (candidateFeedbacks && candidateFeedbacks.length > 0) {
                       const sessionDate = session.date;
@@ -1169,7 +1175,9 @@ export default function StudentDashboard() {
                   return personalSessions.map((session, index) => {
                     const rating = getSessionRating(session);
                     const isExpanded = expandedSessionIndex === index;
-                    const fullFeedback = isExpanded ? getFullFeedback(session) : null;
+                    const normalizedStatus = normalizeSessionStatus(session.sessionStatus);
+                    const isCompleted = normalizedStatus === 'completed';
+                    const fullFeedback = isExpanded && isCompleted ? getFullFeedback(session) : null;
 
                     const rawStatus = (session.sessionStatus && String(session.sessionStatus).trim())
                       ? session.sessionStatus
@@ -1179,11 +1187,20 @@ export default function StudentDashboard() {
                     return (
                       <React.Fragment key={index}>
                         <tr
-                          className="transition-colors cursor-pointer"
+                          className={`transition-colors ${isCompleted ? 'cursor-pointer' : 'cursor-default'}`}
                           style={{ borderColor: '#3A5A5A' }}
-                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1A3636'}
+                          onMouseEnter={(e) => {
+                            if (isCompleted) {
+                              e.currentTarget.style.backgroundColor = '#1A3636';
+                            }
+                          }}
                           onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2A4A4A'}
-                          onClick={() => setExpandedSessionIndex(isExpanded ? null : index)}
+                          onClick={() => {
+                            // Only allow expansion for completed sessions
+                            if (isCompleted) {
+                              setExpandedSessionIndex(isExpanded ? null : index);
+                            }
+                          }}
                         >
                           <td className="px-6 py-4 text-sm text-white">
                             {(() => {
@@ -1218,7 +1235,7 @@ export default function StudentDashboard() {
                             )}
                           </td>
                         </tr>
-                        {isExpanded && (
+                        {isExpanded && isCompleted && (
                           <tr>
                             <td colSpan={5} className="px-6 py-4" style={{ backgroundColor: '#1A3636' }}>
                               <div className="space-y-4">

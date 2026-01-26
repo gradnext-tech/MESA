@@ -301,10 +301,17 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     const feedbacks = sortedSessions
       .map(s => {
         let hasFeedback = false;
+        const normalizedStatus = normalizeSessionStatus(s.sessionStatus);
+
         if (type === 'mentor') {
           const feedbackValue = String(s.studentFeedback || '');
           hasFeedback = feedbackValue !== '' && feedbackValue !== 'N/A' && feedbackValue !== 'null' && feedbackValue !== 'undefined';
         } else {
+          // For mentees, only consider completed sessions
+          if (normalizedStatus !== 'completed') {
+            return null;
+          }
+
           // For mentees, check both session.mentorFeedback and candidateFeedbacks
           const feedbackValue = String(s.mentorFeedback || '');
           if (feedbackValue !== '' && feedbackValue !== 'N/A' && feedbackValue !== 'null' && feedbackValue !== 'undefined') {
@@ -658,57 +665,62 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           ? getFullMentorSessionFeedback(session)
                           : null;
 
-                    // Get feedback value for display - prioritize fullFeedback average
+                // Get feedback value for display - prioritize fullFeedback average
                     let feedbackValue: number | null = null;
                     let isValidRating = false;
+                const normalizedStatus = normalizeSessionStatus(session.sessionStatus);
+                const isCompleted = normalizedStatus === 'completed';
 
                     if (type === 'student') {
-                      // First, try to get average from fullFeedback (Candidate Feedback sheet)
-                      if (fullFeedback) {
-                        // Try multiple column name variations - use "Overall Rating" from column L
-                        let averageValue = fullFeedback['Overall Rating'] ||
-                          fullFeedback['overall rating'] ||
-                          fullFeedback['Overall rating'] ||
-                          fullFeedback['overallRating'] ||
-                          fullFeedback['Average'] ||
-                          fullFeedback['average'];
+                  // Only show rating for completed sessions
+                  if (isCompleted) {
+                    // First, try to get average from fullFeedback (Candidate Feedback sheet)
+                    if (fullFeedback) {
+                      // Try multiple column name variations - use "Overall Rating" from column L
+                      let averageValue = fullFeedback['Overall Rating'] ||
+                        fullFeedback['overall rating'] ||
+                        fullFeedback['Overall rating'] ||
+                        fullFeedback['overallRating'] ||
+                        fullFeedback['Average'] ||
+                        fullFeedback['average'];
 
-                        // If not found by name, try to find by column position (Column L = index 11)
-                        if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
-                          const allKeys = Object.keys(fullFeedback);
-                          if (allKeys.length > 11) {
-                            averageValue = fullFeedback[allKeys[11]]; // Column L (0-indexed: 11)
-                          }
-                        }
-
-                        if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
-                          const avgRating = parseFloat(String(averageValue));
-                          if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
-                            feedbackValue = avgRating;
-                            isValidRating = true;
-                          }
+                      // If not found by name, try to find by column position (Column L = index 11)
+                      if (!averageValue || averageValue === null || averageValue === undefined || averageValue === '') {
+                        const allKeys = Object.keys(fullFeedback);
+                        if (allKeys.length > 11) {
+                          averageValue = fullFeedback[allKeys[11]]; // Column L (0-indexed: 11)
                         }
                       }
 
-                      // If not found in fullFeedback, try session.mentorFeedback
-                      if (!isValidRating && session.mentorFeedback) {
-                        const value = typeof session.mentorFeedback === 'number'
-                          ? session.mentorFeedback
-                          : parseFloat(String(session.mentorFeedback));
-                        if (!isNaN(value) && value > 0) {
-                          feedbackValue = value;
+                      if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
+                        const avgRating = parseFloat(String(averageValue));
+                        if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
+                          feedbackValue = avgRating;
                           isValidRating = true;
                         }
                       }
+                    }
 
-                      // Last resort: try getSessionFeedbackFromSheet
-                      if (!isValidRating) {
-                        const matchedFeedback = getSessionFeedbackFromSheet(session);
-                        if (matchedFeedback !== null) {
-                          feedbackValue = matchedFeedback;
-                          isValidRating = true;
-                        }
+                    // If not found in fullFeedback, try session.mentorFeedback
+                    if (!isValidRating && session.mentorFeedback) {
+                      const value = typeof session.mentorFeedback === 'number'
+                        ? session.mentorFeedback
+                        : parseFloat(String(session.mentorFeedback));
+                      if (!isNaN(value) && value > 0 && value <= 5) {
+                        feedbackValue = value;
+                        isValidRating = true;
                       }
+                    }
+
+                    // Last resort: try getSessionFeedbackFromSheet
+                    if (!isValidRating) {
+                      const matchedFeedback = getSessionFeedbackFromSheet(session);
+                      if (matchedFeedback !== null) {
+                        feedbackValue = matchedFeedback;
+                        isValidRating = true;
+                      }
+                    }
+                  }
                     } else {
                       // For mentors, use studentFeedback
                       const feedback = session.studentFeedback;
@@ -734,17 +746,22 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     return (
                       <React.Fragment key={index}>
                         <tr
-                          className={`border-b transition-colors cursor-pointer`}
+                          className={`border-b transition-colors ${isCompleted ? 'cursor-pointer' : 'cursor-default'}`}
                           style={{ borderColor: '#3A5A5A' }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#2A4A4A';
-                            e.currentTarget.style.cursor = 'pointer';
+                            if (isCompleted) {
+                              e.currentTarget.style.backgroundColor = '#2A4A4A';
+                              e.currentTarget.style.cursor = 'pointer';
+                            }
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.backgroundColor = 'transparent';
                           }}
                           onClick={() => {
-                            setSelectedSessionIndex(selectedSessionIndex === index ? null : index);
+                            // Only allow expansion for completed sessions
+                            if (isCompleted) {
+                              setSelectedSessionIndex(selectedSessionIndex === index ? null : index);
+                            }
                           }}
                         >
                           <td className="px-4 py-2 text-sm text-white">
@@ -798,7 +815,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                             </td>
                           )}
                         </tr>
-                        {showDetails && (
+                        {showDetails && isCompleted && (
                           <tr>
                             <td colSpan={type === 'student' ? 6 : 4} className="px-4 py-4" style={{ backgroundColor: '#1A3636' }}>
                               <div className="space-y-4">
