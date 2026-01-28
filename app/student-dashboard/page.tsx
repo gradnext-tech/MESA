@@ -86,11 +86,11 @@ const StudentMultiSelect: React.FC<{
         onClick={() => setIsOpen(!isOpen)}
       >
         <span className="text-sm">
-          {selectedStudents.length === 0 
-            ? 'All Students' 
+          {selectedStudents.length === 0
+            ? 'All Students'
             : selectedStudents.length === 1
-            ? students.find(m => m.email === selectedStudents[0])?.name || '1 student'
-            : `${selectedStudents.length} students`}
+              ? students.find(m => m.email === selectedStudents[0])?.name || '1 student'
+              : `${selectedStudents.length} students`}
         </span>
         <span className="text-gray-400">▼</span>
       </div>
@@ -167,7 +167,7 @@ function getWeekInputValue(date: Date): string {
   const firstMonday = new Date(year, 0, 4 - daysToMonday);
   const diffInDays = Math.floor((weekStart.getTime() - firstMonday.getTime()) / (1000 * 60 * 60 * 24));
   const weekNum = Math.floor(diffInDays / 7) + 1;
-  
+
   if (weekNum < 1) {
     const prevYear = year - 1;
     const prevJan4 = new Date(prevYear, 0, 4);
@@ -178,7 +178,7 @@ function getWeekInputValue(date: Date): string {
     const prevWeekNum = Math.floor(prevDiffInDays / 7) + 1;
     return `${prevYear}-W${prevWeekNum.toString().padStart(2, '0')}`;
   }
-  
+
   return `${year}-W${weekNum.toString().padStart(2, '0')}`;
 }
 
@@ -284,7 +284,7 @@ export default function StudentDashboard() {
     if (weekFilter) {
       const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
       const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
-      
+
       filtered = filtered.filter(session => {
         try {
           const sessionDate = parseSessionDate(session.date);
@@ -305,7 +305,7 @@ export default function StudentDashboard() {
       const monthDate = new Date(monthFilter + '-01');
       const monthStart = startOfMonth(monthDate);
       const monthEnd = endOfMonth(monthDate);
-      
+
       filtered = filtered.filter(session => {
         try {
           const sessionDate = parseSessionDate(session.date);
@@ -348,7 +348,7 @@ export default function StudentDashboard() {
         normalized === 'admin_rescheduled'
       );
     };
-    
+
     const filteredSessions = sessions.filter(s => !isMentorDisruption(s.sessionStatus));
     const completedSessions = filteredSessions.filter(
       (s) => normalizeSessionStatus(s.sessionStatus) === 'completed'
@@ -361,7 +361,7 @@ export default function StudentDashboard() {
   const uniqueCandidatesWithSessions = useMemo(() => {
     // Use filtered sessions (already completed-only) to respect filters
     const sessionsToUse = filteredSessionsForMetrics;
-    
+
     if (!hasData || !students || students.length === 0) {
       // If no students directory, fallback to unique emails from filtered sessions
       const uniqueEmails = new Set(sessionsToUse.map(s => (s.studentEmail || '').trim().toLowerCase()).filter(e => e));
@@ -371,7 +371,7 @@ export default function StudentDashboard() {
     // Get unique student emails and names from filtered sessions (MESA sheet)
     const sessionStudentEmails = new Set<string>();
     const sessionStudentNames = new Set<string>();
-    
+
     sessionsToUse.forEach(session => {
       const email = (session.studentEmail || '').trim().toLowerCase();
       const name = (session.studentName || '').trim().toLowerCase();
@@ -382,37 +382,37 @@ export default function StudentDashboard() {
     // Match students from directory with sessions
     // Match by email (primary) or by name (fallback)
     const matchedStudents = new Set<string>();
-    
+
     students.forEach(student => {
       const studentEmail = (student.email || '').trim().toLowerCase();
       const studentName = (student.name || '').trim().toLowerCase();
-      
+
       // Match by email (exact match)
       if (studentEmail && sessionStudentEmails.has(studentEmail)) {
         matchedStudents.add(studentEmail);
         return;
       }
-      
+
       // Match by name (case-insensitive, handle variations)
       if (studentName && sessionStudentNames.has(studentName)) {
         matchedStudents.add(studentEmail || studentName);
         return;
       }
-      
+
       // Try partial name matching (first name + last name)
       if (studentName) {
         const nameParts = studentName.split(/\s+/).filter((p: string) => p.length > 0);
         if (nameParts.length > 0) {
           const firstName = nameParts[0].toLowerCase();
           const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1].toLowerCase() : '';
-          
+
           // Check if any session name matches
           for (const sessionName of sessionStudentNames) {
             const sessionNameParts = sessionName.split(/\s+/).filter((p: string) => p.length > 0);
             if (sessionNameParts.length > 0) {
               const sessionFirstName = sessionNameParts[0].toLowerCase();
               const sessionLastName = sessionNameParts.length > 1 ? sessionNameParts[sessionNameParts.length - 1].toLowerCase() : '';
-              
+
               // Match if first and last names match
               if (firstName === sessionFirstName && lastName && sessionLastName && lastName === sessionLastName) {
                 matchedStudents.add(studentEmail || studentName);
@@ -449,7 +449,7 @@ export default function StudentDashboard() {
     if (!hasData) return [];
     // Apply filters to candidate analytics
     let filteredSessions = sessions;
-    
+
     if (weekFilter) {
       const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
       const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
@@ -463,7 +463,7 @@ export default function StudentDashboard() {
         });
       });
     }
-    
+
     if (monthFilter) {
       const monthDate = new Date(monthFilter + '-01');
       const monthStart = startOfMonth(monthDate);
@@ -478,7 +478,7 @@ export default function StudentDashboard() {
         });
       });
     }
-    
+
     if (selectedStudentFilter.length > 0) {
       const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
       filteredSessions = filteredSessions.filter(s => {
@@ -486,7 +486,7 @@ export default function StudentDashboard() {
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
-    
+
     // Exclude mentor-side disruptions for student dashboard analytics
     const filteredWithoutMentorDisruptions = filteredSessions.filter(s => {
       const normalized = normalizeSessionStatus(s.sessionStatus);
@@ -507,20 +507,20 @@ export default function StudentDashboard() {
     // Deduplicate by normalized email (case-insensitive)
     // candidateAnalytics should already be deduplicated, but we do it again for safety
     const uniqueCandidates = new Map<string, CandidateSessionStats>();
-    
+
     candidateAnalytics.forEach(c => {
       // Only consider completed sessions for this ranking
       if (!c.completedSessions || c.completedSessions === 0) return;
-      
+
       const normalizedEmail = (c.email || '').trim().toLowerCase();
       const normalizedName = (c.name || '').trim().toLowerCase();
-      
+
       // Skip if no identifier
       if (!normalizedEmail && !normalizedName) return;
-      
+
       // Use email as primary key, fallback to name
       const key = normalizedEmail || normalizedName;
-      
+
       const existing = uniqueCandidates.get(key);
       if (!existing) {
         uniqueCandidates.set(key, c);
@@ -536,7 +536,7 @@ export default function StudentDashboard() {
         }
       }
     });
-    
+
     const sorted = Array.from(uniqueCandidates.values())
       .sort((a, b) => {
         // First sort by completedSessions (descending)
@@ -546,8 +546,8 @@ export default function StudentDashboard() {
         // If equal, sort by name alphabetically
         return (a.name || '').localeCompare(b.name || '');
       });
-    
-    
+
+
     return sorted.slice(0, 10);
   }, [candidateAnalytics]);
 
@@ -559,13 +559,13 @@ export default function StudentDashboard() {
       if (!normalizedEmail) return;
       // Only consider candidates who have at least 1 completed session
       if (!c.completedSessions || c.completedSessions === 0) return;
-      
+
       const existing = uniqueCandidates.get(normalizedEmail);
       if (!existing || c.completedSessions < existing.completedSessions) {
         uniqueCandidates.set(normalizedEmail, c);
       }
     });
-    
+
     const sorted = Array.from(uniqueCandidates.values())
       .sort((a, b) => {
         // First sort by completedSessions (ascending)
@@ -585,14 +585,14 @@ export default function StudentDashboard() {
       if (c.avgFeedback > 4.75 && c.avgFeedback > 0) {
         const normalizedEmail = (c.email || '').trim().toLowerCase();
         if (!normalizedEmail) return;
-        
+
         const existing = uniqueCandidates.get(normalizedEmail);
         if (!existing || c.avgFeedback > existing.avgFeedback) {
           uniqueCandidates.set(normalizedEmail, c);
         }
       }
     });
-    
+
     // Sort by rating descending (highest first)
     const sorted = Array.from(uniqueCandidates.values())
       .sort((a, b) => {
@@ -603,7 +603,7 @@ export default function StudentDashboard() {
         // If equal, sort by name alphabetically
         return (a.name || '').localeCompare(b.name || '');
       });
-    
+
     return sorted;
   }, [candidateAnalytics]);
 
@@ -614,14 +614,14 @@ export default function StudentDashboard() {
       if (c.avgFeedback > 0 && c.avgFeedback < 3.5) {
         const normalizedEmail = (c.email || '').trim().toLowerCase();
         if (!normalizedEmail) return;
-        
+
         const existing = uniqueCandidates.get(normalizedEmail);
         if (!existing || c.avgFeedback < existing.avgFeedback) {
           uniqueCandidates.set(normalizedEmail, c);
         }
       }
     });
-    
+
     // Sort by rating ascending (lowest first)
     const sorted = Array.from(uniqueCandidates.values())
       .sort((a, b) => {
@@ -632,13 +632,13 @@ export default function StudentDashboard() {
         // If equal, sort by name alphabetically
         return (a.name || '').localeCompare(b.name || '');
       });
-    
+
     return sorted;
   }, [candidateAnalytics]);
 
   const filteredCandidates = useMemo(() => {
     let filtered = candidateAnalytics;
-    
+
     // Apply student filter if selected
     if (selectedStudentFilter.length > 0) {
       const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
@@ -647,7 +647,7 @@ export default function StudentDashboard() {
         return normalizedFilterEmails.includes(candidateEmail);
       });
     }
-    
+
     // Apply search term filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -657,7 +657,7 @@ export default function StudentDashboard() {
           c.email.toLowerCase().includes(term)
       );
     }
-    
+
     return filtered;
   }, [candidateAnalytics, searchTerm, selectedStudentFilter]);
 
@@ -733,10 +733,10 @@ export default function StudentDashboard() {
     if (!hasData || sessions.length === 0) {
       return [];
     }
-    
+
     // Apply filters to sessions for weekwise chart
     let filteredSessions = sessions;
-    
+
     // Apply week filter (takes precedence over month filter)
     if (weekFilter) {
       const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
@@ -766,7 +766,7 @@ export default function StudentDashboard() {
         });
       });
     }
-    
+
     // Apply student filter
     if (selectedStudentFilter.length > 0) {
       const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
@@ -775,7 +775,7 @@ export default function StudentDashboard() {
         return normalizedFilterEmails.includes(sessionEmail);
       });
     }
-    
+
     // Exclude mentor-side disruptions for student dashboard
     filteredSessions = filteredSessions.filter(s => {
       const normalized = normalizeSessionStatus(s.sessionStatus);
@@ -787,7 +787,7 @@ export default function StudentDashboard() {
         normalized !== 'admin_rescheduled'
       );
     });
-    
+
     // Get all session dates with consistent parsing
     const sessionDates: Date[] = [];
     filteredSessions.forEach(s => {
@@ -797,51 +797,51 @@ export default function StudentDashboard() {
         sessionDates.push(parsedDate);
       }
     });
-    
+
     if (sessionDates.length === 0) {
       return [];
     }
-    
+
     // Find date range
     const minDate = min(sessionDates);
     const maxDate = max(sessionDates);
-    
+
     // Generate all weeks in the range
     const weeks = eachWeekOfInterval(
       { start: minDate, end: maxDate },
       { weekStartsOn: 1 } // Monday
     );
-    
+
     // Count sessions per week using the same parsing function
     const weekData = weeks.map(weekStart => {
       const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
       const weekStartNormalized = startOfDay(weekStart);
       const weekEndNormalized = startOfDay(weekEnd);
-      
+
       const weekSessions = filteredSessions.filter(s => {
         if (!s.date) return false;
-        
+
         const sessionDate = parseSessionDate(s.date);
         if (!sessionDate) return false;
-        
+
         // Normalize session date to start of day for comparison
         const sessionDateNormalized = startOfDay(sessionDate);
-        
+
         // Use isWithinInterval for accurate date comparison
         const isInWeek = isWithinInterval(sessionDateNormalized, {
           start: weekStartNormalized,
           end: weekEndNormalized,
         });
-        
+
         return isInWeek;
       });
-      
+
       // Count completed sessions (status is "completed" or "done")
       const completedSessions = weekSessions.filter(s => {
         const status = (s.sessionStatus || '').toLowerCase().trim();
         return status === 'completed' || status === 'done';
       });
-      
+
       return {
         week: format(weekStart, 'MMM d'),
         weekStart: weekStart.toISOString(),
@@ -850,7 +850,7 @@ export default function StudentDashboard() {
         weekLabel: `${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')}`,
       };
     });
-    
+
     // Return all weeks (including those with 0 sessions) for complete trend visualization
     return weekData;
   }, [sessions, hasData, weekFilter, monthFilter, selectedStudentFilter]);
@@ -861,7 +861,7 @@ export default function StudentDashboard() {
         <AlertCircle className="w-16 h-16 text-gray-400 mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">No Data Available</h2>
         <p className="text-gray-300 mb-6 text-center max-w-md">
-          {sessions.length === 0 
+          {sessions.length === 0
             ? 'No valid session data found. Please ensure your Google Sheet has data with Date, Mentor Email, and Student Email fields filled in.'
             : 'Please upload your session data first'}
         </p>
@@ -922,7 +922,7 @@ export default function StudentDashboard() {
           />
           <MetricCard
             title="Avg. Rating"
-            value={studentMetrics.avgFeedbackScore > 0 ? studentMetrics.avgFeedbackScore.toFixed(2) : 'N/A'}
+            value={studentMetrics.avgFeedbackScore > 0 ? `${studentMetrics.avgFeedbackScore.toFixed(2)}/5` : 'N/A'}
             icon={Star}
             iconColor="text-[#22C55E]"
             subtitle="Across your sessions"
@@ -1286,12 +1286,11 @@ export default function StudentDashboard() {
                                       ) : (
                                         <AlertCircle className="w-4 h-4 text-gray-400" />
                                       )}
-                                      <span className={`text-sm ${
-                                        displayStatus.toLowerCase() === 'completed' ? 'text-[#22C55E]' :
+                                      <span className={`text-sm ${displayStatus.toLowerCase() === 'completed' ? 'text-[#22C55E]' :
                                         displayStatus.toLowerCase() === 'cancelled' ? 'text-red-400' :
-                                        displayStatus.toLowerCase().includes('no show') ? 'text-orange-400' :
-                                        'text-gray-400'
-                                      }`}>
+                                          displayStatus.toLowerCase().includes('no show') ? 'text-orange-400' :
+                                            'text-gray-400'
+                                        }`}>
                                         {displayStatus}
                                       </span>
                                     </div>
@@ -1318,7 +1317,7 @@ export default function StudentDashboard() {
                                 {fullFeedback ? (
                                   <div className="border-t pt-4 mt-4" style={{ borderColor: '#3A5A5A' }}>
                                     <h5 className="text-sm font-semibold text-white mb-3">Feedback Details</h5>
-                                    
+
                                     {/* Overall Rating */}
                                     {(() => {
                                       const overallRating = fullFeedback['Overall Rating'] || fullFeedback['overall rating'] || fullFeedback['Average'] || fullFeedback['average'];
@@ -1435,18 +1434,18 @@ export default function StudentDashboard() {
     <div className="space-y-8">
       {/* Header */}
       <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+        <div className="flex items-center justify-between">
+          <div>
             <h1 className="text-3xl font-bold text-white">Student Dashboard</h1>
             <p className="text-gray-300 mt-1">
-            Comprehensive analytics for student engagement and performance
-          </p>
+              Comprehensive analytics for student engagement and performance
+            </p>
           </div>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ 
+            style={{
               backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
               color: '#fff'
             }}
@@ -1575,11 +1574,11 @@ export default function StudentDashboard() {
             if (!hasData || !students || students.length === 0 || !studentMetrics) {
               return 'N/A';
             }
-            
+
             // Use filtered sessions count from studentMetrics (already filtered by week/month/student)
             const totalSessionsDone = studentMetrics.totalSessionsDone;
             const totalCandidates = students.length;
-            return totalSessionsDone > 0 
+            return totalSessionsDone > 0
               ? (totalSessionsDone / totalCandidates).toFixed(2)
               : '0.00';
           })()}
@@ -1594,28 +1593,28 @@ export default function StudentDashboard() {
             if (!hasData || !students || students.length === 0 || !studentMetrics) {
               return 'N/A';
             }
-            
+
             // Use filtered sessions count from studentMetrics (already filtered by week/month/student)
             const totalSessionsDone = studentMetrics.totalSessionsDone;
-            
+
             // Get unique student names from filtered sessions (who have booked at least 1 session in the filtered range)
             const filteredCompletedSessions = filteredSessionsForMetrics.filter(
               s => normalizeSessionStatus(s.sessionStatus) === 'completed'
             );
-            
+
             const sessionStudentNames = new Set(
               filteredCompletedSessions
                 .map(s => (s.studentName || '').trim().toLowerCase())
                 .filter(name => name)
             );
-            
+
             // Count how many candidates from Student Directory have booked at least 1 session in the filtered range
             const activeCandidatesCount = students.filter(student => {
               const studentName = (student.name || '').trim().toLowerCase();
               return studentName && sessionStudentNames.has(studentName);
             }).length;
-            
-            return activeCandidatesCount > 0 
+
+            return activeCandidatesCount > 0
               ? (totalSessionsDone / activeCandidatesCount).toFixed(2)
               : '0.00';
           })()}
@@ -1636,7 +1635,7 @@ export default function StudentDashboard() {
         />
         <MetricCard
           title="Avg. Rating"
-          value={studentMetrics.avgFeedbackScore > 0 ? studentMetrics.avgFeedbackScore.toFixed(2) : 'N/A'}
+          value={studentMetrics.avgFeedbackScore > 0 ? `${studentMetrics.avgFeedbackScore.toFixed(2)}/5` : 'N/A'}
           icon={Star}
           iconColor="text-[#22C55E]"
           subtitle="Overall average"
@@ -1681,7 +1680,7 @@ export default function StudentDashboard() {
               })
             )}
           </div>
-      </div>
+        </div>
 
         {/* Candidates with >4.75 Rating */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
@@ -1710,7 +1709,7 @@ export default function StudentDashboard() {
                       <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
                       <div className="flex items-center gap-2">
                         <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-                        <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)} rating</p>
+                        <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)}/5 rating</p>
                       </div>
                     </div>
                   </div>
@@ -1718,7 +1717,7 @@ export default function StudentDashboard() {
               ))
             )}
           </div>
-      </div>
+        </div>
 
         {/* Bottom 10 Candidates by Sessions */}
         <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
@@ -1777,7 +1776,7 @@ export default function StudentDashboard() {
                       <p className="text-sm font-medium text-white">{candidate.name || candidate.email}</p>
                       <div className="flex items-center gap-2">
                         <Star className="w-3 h-3 text-red-400" />
-                        <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)} rating</p>
+                        <p className="text-xs text-gray-400">{candidate.avgFeedback.toFixed(2)}/5 rating</p>
                       </div>
                     </div>
                   </div>
@@ -1793,7 +1792,7 @@ export default function StudentDashboard() {
       <div className="rounded-xl shadow-md p-6 border" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
         <h3 className="text-lg font-semibold text-white mb-4">
           Weekwise Sessions Booked
-          </h3>
+        </h3>
         {weekwiseSessionData.length === 0 ? (
           <div className="flex items-center justify-center h-[300px]">
             <p className="text-gray-400">No session data available</p>
@@ -1802,9 +1801,9 @@ export default function StudentDashboard() {
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={weekwiseSessionData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#3A5A5A" />
-              <XAxis 
-                dataKey="week" 
-                stroke="#86EFAC" 
+              <XAxis
+                dataKey="week"
+                stroke="#86EFAC"
                 tick={{ fill: '#86EFAC', fontSize: 12 }}
                 angle={-45}
                 textAnchor="end"
@@ -1952,7 +1951,7 @@ export default function StudentDashboard() {
                     <div className="flex items-center">
                       <Star className="w-4 h-4 mr-1" style={{ color: '#86EFAC' }} />
                       <span className="text-sm text-white">
-                        {candidate.avgFeedback > 0 ? candidate.avgFeedback.toFixed(2) : 'N/A'}
+                        {candidate.avgFeedback > 0 ? `${candidate.avgFeedback.toFixed(2)}/5` : 'N/A'}
                       </span>
                       {candidate.feedbackCount > 0 && (
                         <span className="text-xs text-gray-400 ml-1">

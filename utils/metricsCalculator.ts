@@ -500,8 +500,9 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
     : 0;
 
   // Average feedback score - read directly from column L "Overall Rating" in candidate feedbacks
+  // Average feedback score - read directly from column L "Overall Rating" in candidate feedbacks
   // Apply the same filters as applied to sessions
-  const feedbackScores: number[] = [];
+  const feedbackScores: Array<{ val: number; date: number }> = [];
 
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
     // Get all keys from first feedback to find the Overall Rating column
@@ -612,7 +613,12 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
           if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
             const avgRating = parseFloat(String(averageValue));
             if (!isNaN(avgRating) && avgRating > 0 && avgRating <= 5) {
-              feedbackScores.push(avgRating);
+              // Extract date for sorting
+              const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+              const feedbackDateParsed = parseSessionDate(feedbackDate);
+              const timestamp = feedbackDateParsed ? feedbackDateParsed.getTime() : 0;
+
+              feedbackScores.push({ val: avgRating, date: timestamp });
             }
           }
         }
@@ -620,8 +626,12 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
     }
   }
 
-  const avgFeedbackScore = feedbackScores.length > 0
-    ? feedbackScores.reduce((a, b) => a + b, 0) / feedbackScores.length
+  // Calculate average of LAST 5 feedbacks
+  feedbackScores.sort((a, b) => b.date - a.date);
+  const last5Feedbacks = feedbackScores.slice(0, 5);
+
+  const avgFeedbackScore = last5Feedbacks.length > 0
+    ? last5Feedbacks.reduce((a, b) => a + b.val, 0) / last5Feedbacks.length
     : 0;
 
   // Calculate average sessions per week
@@ -988,6 +998,8 @@ export function calculateStudentMetrics(sessions: Session[], weekFilter?: Date, 
  */
 function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
   const candidateMap = new Map<string, CandidateSessionStats>();
+  // Store ratings with dates for last-5 calculation
+  const candidateRatings = new Map<string, Array<{ rating: number; date: number }>>();
 
   sessions.forEach(session => {
     // Normalize email to lowercase for case-insensitive matching
@@ -1011,6 +1023,7 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
         totalSessionsBooked: 0,
         completionRate: 0,
       });
+      candidateRatings.set(email, []);
     }
 
     const stats = candidateMap.get(email)!;
@@ -1052,12 +1065,14 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
     // This comes from the Candidate Feedback sheet
     const feedback = parseFloat(String(session.mentorFeedback));
     if (!isNaN(feedback) && feedback > 0 && feedback <= 5) {
-      stats.avgFeedback = (stats.avgFeedback * stats.feedbackCount + feedback) / (stats.feedbackCount + 1);
+      const dateObj = parseSessionDate(session.date);
+      const timestamp = dateObj ? dateObj.getTime() : 0;
+      candidateRatings.get(email)!.push({ rating: feedback, date: timestamp });
       stats.feedbackCount++;
     }
   });
 
-  // Calculate completion rates and unique mentors
+  // Calculate completion rates, unique mentors, and avg feedback (Last 5)
   candidateMap.forEach((stats, normalizedEmail) => {
     // Match sessions by normalized email (case-insensitive)
     const candidateSessions = sessions.filter(s =>
@@ -1068,6 +1083,18 @@ function calculateCandidateStats(sessions: Session[]): CandidateSessionStats[] {
 
     if (stats.totalSessionsBooked > 0) {
       stats.completionRate = (stats.completedSessions / stats.totalSessionsBooked) * 100;
+    }
+
+    // Average of last 5 feedbacks
+    const ratings = candidateRatings.get(normalizedEmail) || [];
+    if (ratings.length > 0) {
+      // Sort returning latest first
+      ratings.sort((a, b) => b.date - a.date);
+      const latest5 = ratings.slice(0, 5);
+      const sum = latest5.reduce((acc, curr) => acc + curr.rating, 0);
+      stats.avgFeedback = sum / latest5.length;
+    } else {
+      stats.avgFeedback = 0;
     }
   });
 
@@ -1095,7 +1122,7 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
   // This ensures we use the actual Average column from the sheet, not calculated values
   if (candidateFeedbacks && Array.isArray(candidateFeedbacks) && candidateFeedbacks.length > 0) {
     // Group feedbacks by candidate - use a unique identifier (prefer email, fallback to name)
-    const candidateRatingData = new Map<string, { ratings: number[]; count: number; email?: string; name?: string }>();
+    const candidateRatingData = new Map<string, { ratings: Array<{ val: number, date: number }>; count: number; email?: string; name?: string }>();
     // Also create a lookup map for both email and name keys
     const candidateKeyMap = new Map<string, string>(); // Maps email/name -> unique key
 
@@ -1119,6 +1146,11 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
         }
       }
 
+      // Extract Date for sorting
+      const dateVal = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
+      const dateObj = parseSessionDate(dateVal);
+      const timestamp = dateObj ? dateObj.getTime() : 0;
+
 
       if (candidateName || candidateEmail) {
         if (averageValue !== null && averageValue !== undefined && averageValue !== '') {
@@ -1131,7 +1163,7 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
               candidateRatingData.set(uniqueKey, { ratings: [], count: 0, email: candidateEmail || undefined, name: candidateName || undefined });
             }
             const candidateData = candidateRatingData.get(uniqueKey)!;
-            candidateData.ratings.push(avgRating);
+            candidateData.ratings.push({ val: avgRating, date: timestamp });
             candidateData.count++;
 
 
@@ -1158,8 +1190,11 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
       if (uniqueKey) {
         const candidateData = candidateRatingData.get(uniqueKey);
         if (candidateData && candidateData.ratings.length > 0) {
-          // Calculate average from all ratings for this candidate
-          const avgRating = candidateData.ratings.reduce((a, b) => a + b, 0) / candidateData.ratings.length;
+          // Calculate average from last 5 ratings for this candidate
+          const sortedRatings = candidateData.ratings.sort((a, b) => b.date - a.date);
+          const latest5 = sortedRatings.slice(0, 5);
+          const avgRating = latest5.reduce((a, b) => a + b.val, 0) / latest5.length;
+
           stats.avgFeedback = avgRating;
           stats.feedbackCount = candidateData.count;
 
@@ -1181,7 +1216,9 @@ export function getDetailedCandidateAnalytics(sessions: Session[], candidateFeed
 
       if (!existingStats && candidateData.ratings.length > 0) {
         // Create a new candidate stat entry for this candidate from feedback sheet
-        const avgRating = candidateData.ratings.reduce((a, b) => a + b, 0) / candidateData.ratings.length;
+        const sortedRatings = candidateData.ratings.sort((a, b) => b.date - a.date);
+        const latest5 = sortedRatings.slice(0, 5);
+        const avgRating = latest5.reduce((a, b) => a + b.val, 0) / latest5.length;
 
         // Find this candidate in ALL sessions (not just filtered) to get basic info
         const candidateSession = (allSessions || sessions).find(s =>
