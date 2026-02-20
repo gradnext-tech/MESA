@@ -91,8 +91,8 @@ export async function POST(request: NextRequest) {
     if (email.trim().endsWith('@gradnext.co') && passwordHash === ADMIN_PASSWORD_HASH) {
       accessLevel = 'admin';
     }
-    // Check MESA credentials
-    else if (passwordHash === STUDENT_PASSWORD_HASH) {
+    // Check MESA credentials - only allow learning@mesaschool.co
+    else if (email.trim().toLowerCase() === 'learning@mesaschool.co' && passwordHash === STUDENT_PASSWORD_HASH) {
       accessLevel = 'mesa';
     }
     // Check mentor / student credentials from Google Sheets
