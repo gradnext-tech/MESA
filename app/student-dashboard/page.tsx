@@ -23,6 +23,7 @@ import {
   CheckCircle,
   RefreshCw,
   X,
+  Download,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -39,6 +40,7 @@ import {
 } from 'recharts';
 import { startOfWeek, endOfWeek, format, parseISO, eachWeekOfInterval, min, max, isWithinInterval, startOfDay, startOfMonth, endOfMonth } from 'date-fns';
 import { Filter } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 // Multi-select component for students
 const StudentMultiSelect: React.FC<{
@@ -205,10 +207,68 @@ export default function StudentDashboard() {
   const [selectedStudent, setSelectedStudent] = useState<CandidateSessionStats | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedSessionIndex, setExpandedSessionIndex] = useState<number | null>(null);
+  const [mesaActiveTab, setMesaActiveTab] = useState<'overview' | 'sessions'>('overview');
 
   const { candidateFeedbacks, setMentorFeedbacks } = useData();
 
   const isPersonalStudent = accessLevel === 'student';
+  const isMesa = accessLevel === 'mesa';
+
+  // Sessions for MESA tab: only Done, Mentee Cancelled, Mentee No Show, Mentee Rescheduled (column M)
+  // Apply filters: week, month, student
+  const mesaTableSessions = useMemo(() => {
+    if (!hasData || !sessions.length) return [];
+    const allowed = new Set(['completed', 'student_cancelled', 'student_no_show', 'student_rescheduled']);
+    let filtered = sessions.filter(s => allowed.has(normalizeSessionStatus(s.sessionStatus)));
+
+    // Apply week filter if provided
+    if (weekFilter) {
+      const weekStart = startOfWeek(weekFilter, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekFilter, { weekStartsOn: 1 });
+      filtered = filtered.filter(session => {
+        const sessionDate = parseSessionDate(session.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(weekStart),
+          end: startOfDay(weekEnd),
+        });
+      });
+    }
+
+    // Apply month filter if provided (only if week filter is not set)
+    if (!weekFilter && monthFilter) {
+      const monthDate = new Date(monthFilter + '-01');
+      const monthStart = startOfMonth(monthDate);
+      const monthEnd = endOfMonth(monthDate);
+      filtered = filtered.filter(session => {
+        const sessionDate = parseSessionDate(session.date);
+        if (!sessionDate) return false;
+        const sessionDateNormalized = startOfDay(sessionDate);
+        return isWithinInterval(sessionDateNormalized, {
+          start: startOfDay(monthStart),
+          end: startOfDay(monthEnd),
+        });
+      });
+    }
+
+    // Apply student filter if provided
+    if (selectedStudentFilter.length > 0) {
+      const normalizedFilterEmails = selectedStudentFilter.map(e => (e || '').trim().toLowerCase()).filter(e => e);
+      filtered = filtered.filter(session => {
+        const sessionEmail = (session.studentEmail || '').trim().toLowerCase();
+        return normalizedFilterEmails.includes(sessionEmail);
+      });
+    }
+
+    // Sort by date (most recent first)
+    return filtered.sort((a, b) => {
+      const dateA = parseSessionDate(a.date);
+      const dateB = parseSessionDate(b.date);
+      if (!dateA || !dateB) return 0;
+      return dateB.getTime() - dateA.getTime();
+    });
+  }, [sessions, hasData, weekFilter, monthFilter, selectedStudentFilter]);
 
   // If logged in as a personal student, lock the filter to their email so they only see their own data
   React.useEffect(() => {
@@ -726,6 +786,39 @@ export default function StudentDashboard() {
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  // Export MESA sessions to Excel
+  const handleExportToExcel = () => {
+    if (!mesaTableSessions || mesaTableSessions.length === 0) {
+      return;
+    }
+
+    // Prepare data for Excel export
+    const excelData = mesaTableSessions.map((session, index) => {
+      const sessionDate = parseSessionDate(session.date);
+      return {
+        'S No': session.sNo ?? index + 1,
+        'Date': sessionDate ? format(sessionDate, 'MMM dd, yyyy') : session.date || '—',
+        'Time': session.time || '—',
+        'Mentee Name': session.studentName || '—',
+        'Mentor Name': session.mentorName || '—',
+        'Session Status': session.sessionStatus || '—',
+        'Session Type': session.sessionType || '—',
+      };
+    });
+
+    // Create workbook and worksheet
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Sessions');
+
+    // Generate filename with current date
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const filename = `MESA_Sessions_${today}.xlsx`;
+
+    // Write file and trigger download
+    XLSX.writeFile(workbook, filename);
   };
 
   // Weekwise Session Booked Data
@@ -1432,7 +1525,211 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* MESA: Tabs for Overview vs Sessions */}
+      {isMesa && (
+        <div className="flex gap-2 border-b" style={{ borderColor: '#3A5A5A' }}>
+          <button
+            type="button"
+            onClick={() => setMesaActiveTab('overview')}
+            className="px-4 py-3 text-sm font-medium rounded-t-lg transition-all"
+            style={{
+              backgroundColor: mesaActiveTab === 'overview' ? '#22C55E' : 'transparent',
+              color: mesaActiveTab === 'overview' ? '#fff' : '#9CA3AF',
+            }}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setMesaActiveTab('sessions')}
+            className="px-4 py-3 text-sm font-medium rounded-t-lg transition-all"
+            style={{
+              backgroundColor: mesaActiveTab === 'sessions' ? '#22C55E' : 'transparent',
+              color: mesaActiveTab === 'sessions' ? '#fff' : '#9CA3AF',
+            }}
+          >
+            Sessions
+          </button>
+        </div>
+      )}
+
+      {/* MESA Sessions tab: table of Done / Mentee Cancelled / No Show / Rescheduled */}
+      {isMesa && mesaActiveTab === 'sessions' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white">Sessions (Done, Mentee Cancelled, No Show, Rescheduled)</h2>
+              <p className="text-sm text-gray-400 mt-1">Session status from column M</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportToExcel}
+                disabled={mesaTableSessions.length === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ 
+                  backgroundColor: mesaTableSessions.length === 0 ? '#3A5A5A' : '#3B82F6', 
+                  color: '#fff' 
+                }}
+                onMouseEnter={(e) => {
+                  if (mesaTableSessions.length > 0) {
+                    e.currentTarget.style.backgroundColor = '#2563EB';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (mesaTableSessions.length > 0) {
+                    e.currentTarget.style.backgroundColor = '#3B82F6';
+                  }
+                }}
+                title="Download as Excel"
+              >
+                <Download className="w-4 h-4" />
+                Download Excel
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E', color: '#fff' }}
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+              </button>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Week Filter */}
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-400" />
+              <label className="text-sm text-gray-300 whitespace-nowrap">Week:</label>
+              <input
+                type="week"
+                value={weekFilter ? getWeekInputValue(weekFilter) : ''}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const [year, week] = e.target.value.split('-W');
+                    const date = getDateFromWeek(parseInt(year), parseInt(week));
+                    date.setHours(0, 0, 0, 0);
+                    setWeekFilter(date);
+                    setMonthFilter(''); // Clear month filter when week is selected
+                  } else {
+                    setWeekFilter(undefined);
+                  }
+                }}
+                className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
+                style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
+                onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
+                onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
+              />
+              {weekFilter && (
+                <>
+                  <span className="text-xs text-gray-400 whitespace-nowrap">
+                    ({format(startOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d')} - {format(endOfWeek(weekFilter, { weekStartsOn: 1 }), 'MMM d, yyyy')})
+                  </span>
+                  <button
+                    onClick={() => setWeekFilter(undefined)}
+                    className="text-xs text-gray-400 hover:text-white px-2"
+                    title="Clear week filter"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
+            </div>
+            {/* Month Filter */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-300 whitespace-nowrap">Month:</label>
+              <input
+                type="month"
+                value={monthFilter}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setMonthFilter(e.target.value);
+                    setWeekFilter(undefined); // Clear week filter when month is selected
+                  } else {
+                    setMonthFilter('');
+                  }
+                }}
+                className="px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent text-sm"
+                style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A', color: '#fff' }}
+                onFocus={(e) => e.currentTarget.style.borderColor = '#22C55E'}
+                onBlur={(e) => e.currentTarget.style.borderColor = '#3A5A5A'}
+              />
+              {monthFilter && (
+                <>
+                  <span className="text-xs text-gray-400 whitespace-nowrap">
+                    ({format(new Date(monthFilter + '-01'), 'MMM yyyy')})
+                  </span>
+                  <button
+                    onClick={() => setMonthFilter('')}
+                    className="text-xs text-gray-400 hover:text-white px-2"
+                    title="Clear month filter"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
+            </div>
+            {/* Student Filter - Multi-select */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-300 whitespace-nowrap">Student:</label>
+              <StudentMultiSelect
+                students={uniqueStudents}
+                selectedStudents={selectedStudentFilter}
+                onChange={setSelectedStudentFilter}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b" style={{ backgroundColor: '#1A3636', borderColor: '#3A5A5A' }}>
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">S No</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Time</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mentee Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Mentor Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Session Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Session Type</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y" style={{ borderColor: '#3A5A5A' }}>
+                  {mesaTableSessions.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                        No sessions found with status Done, Mentee Cancelled, Mentee No Show, or Mentee Rescheduled.
+                      </td>
+                    </tr>
+                  ) : (
+                    mesaTableSessions.map((session, index) => (
+                      <tr key={`mesa-session-${index}-${session.date}-${session.mentorEmail}-${session.studentEmail}`} className="hover:bg-[#1A3636]/50">
+                        <td className="px-4 py-3 text-sm text-white">{session.sNo ?? index + 1}</td>
+                        <td className="px-4 py-3 text-sm text-white">
+                          {session.date ? (parseSessionDate(session.date) ? format(parseSessionDate(session.date)!, 'MMM dd, yyyy') : session.date) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-300">{session.time || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-white">{session.studentName || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-white">{session.mentorName || '—'}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className="text-white">{session.sessionStatus || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-300">{session.sessionType || '—'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header (shown for admin; for MESA only when Overview tab) */}
+      {(!isMesa || mesaActiveTab === 'overview') && (
+      <>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -2014,6 +2311,8 @@ export default function StudentDashboard() {
         )}
       </div>
 
+      </>
+      )}
       {/* Detail Modal */}
       {selectedStudent && (
         <DetailModal
