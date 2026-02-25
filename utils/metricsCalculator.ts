@@ -188,21 +188,13 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
 
       if (!mentorName && !mentorEmail) return;
 
-      // Get rating value - try by column name first
-      let ratingValue = feedback[ratingColumnName] ||
+      // Get rating value - try by known column names only
+      const ratingValue = feedback[ratingColumnName] ||
         feedback['Rating'] ||
         feedback['rating'] ||
         feedback['Overall Rating'] ||
         feedback['overall rating'] ||
         '';
-
-      // If not found by name, try by column position (H = 8th column, index 7)
-      if (!ratingValue || ratingValue === '') {
-        const feedbackKeys = Object.keys(feedback);
-        if (feedbackKeys.length >= 8) {
-          ratingValue = feedback[feedbackKeys[7]]; // Column H (0-indexed: 7)
-        }
-      }
 
       if (!ratingValue || ratingValue === '') return;
 
@@ -279,15 +271,13 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
         // Extract ratings from these feedbacks
         ratings = feedbacksForMentor
           .map((fb: any) => {
-            let ratingValue = fb[ratingColumnName] || fb['Rating'] || fb['rating'] || fb['Overall Rating'] || fb['overall rating'] || '';
-
-            // If not found by name, try by column position (H = 8th column, index 7)
-            if (!ratingValue || ratingValue === '') {
-              const feedbackKeys = Object.keys(fb);
-              if (feedbackKeys.length >= 8) {
-                ratingValue = fb[feedbackKeys[7]]; // Column H (0-indexed: 7)
-              }
-            }
+            const ratingValue =
+              fb[ratingColumnName] ||
+              fb['Rating'] ||
+              fb['rating'] ||
+              fb['Overall Rating'] ||
+              fb['overall rating'] ||
+              '';
 
             if (!ratingValue || ratingValue === '') return null;
             const ratingStr = String(ratingValue).trim();
@@ -300,8 +290,12 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
           .filter((r): r is number => r !== null);
       }
 
-      if (ratings.length > 0) {
-        metrics.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10; // Round to 1 decimal
+      // Only show a rating if the mentor has at least one completed session.
+      if (ratings.length > 0 && metrics.sessionsDone > 0) {
+        metrics.avgRating =
+          Math.round(
+            (ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10
+          ) / 10; // Round to 1 decimal
       } else {
         metrics.avgRating = 0;
       }
@@ -328,8 +322,14 @@ export function calculateMentorMetrics(sessions: Session[], allSessionsForRating
         })
         .filter((r): r is number => r !== null && !isNaN(r) && r > 0);
 
-      if (ratings.length > 0) {
-        metrics.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10;
+      // Only show a rating if the mentor has at least one completed session.
+      // This prevents showing ratings for mentors who don't have any completed sessions
+      // in the Mesa tracker data (which can feel misleading on the dashboard).
+      if (ratings.length > 0 && metrics.sessionsDone > 0) {
+        metrics.avgRating =
+          Math.round(
+            (ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10
+          ) / 10;
       } else {
         metrics.avgRating = 0;
       }
@@ -1548,8 +1548,12 @@ export function calculateMentorSessionStats(
         .filter((r): r is number => r !== null && !isNaN(r) && r > 0);
     }
 
-    if (ratings.length > 0) {
-      stats.avgRating = Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10;
+    // Only show a rating if the mentor has at least one completed session.
+    if (ratings.length > 0 && stats.completed > 0) {
+      stats.avgRating =
+        Math.round(
+          (ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10
+        ) / 10;
     } else {
       stats.avgRating = 0;
     }

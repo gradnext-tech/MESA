@@ -881,19 +881,18 @@ export default function MentorDashboard() {
       ];
 
       feedbacksToUse.forEach((feedback) => {
-        let ratingValue = null;
+        let ratingValue: any = null;
 
-        // Try to get by column header name first
+        // Try to get by known rating column names only
         for (const colName of ratingColumnNames) {
-          if (feedback[colName] !== undefined && feedback[colName] !== null && feedback[colName] !== '') {
+          if (
+            feedback[colName] !== undefined &&
+            feedback[colName] !== null &&
+            feedback[colName] !== ''
+          ) {
             ratingValue = feedback[colName];
             break;
           }
-        }
-
-        // Fallback to _col7
-        if (ratingValue === null || ratingValue === undefined || ratingValue === '') {
-          ratingValue = feedback['_col7'];
         }
 
         if (ratingValue !== null && ratingValue !== undefined && ratingValue !== '') {
