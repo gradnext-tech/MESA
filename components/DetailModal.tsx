@@ -92,24 +92,14 @@ export const DetailModal: React.FC<DetailModalProps> = ({
         const normalizedFeedbackCandidateEmail = feedbackCandidateEmail.toLowerCase().trim();
         const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
 
-        // Match by candidate name or email (flexible matching)
+        // Candidate match (prefer email, otherwise full-name match)
         const candidateMatch =
-          (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
           (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail) ||
-          // Partial name matching (first name + last name)
-          (normalizedCandidateName && normalizedFeedbackCandidateName &&
-            normalizedCandidateName.split(/\s+/)[0] === normalizedFeedbackCandidateName.split(/\s+/)[0] &&
-            normalizedCandidateName.split(/\s+/).pop() === normalizedFeedbackCandidateName.split(/\s+/).pop());
+          (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName);
 
-        // Match by mentor name (flexible - partial match allowed)
+        // Mentor match (full-name match only to avoid recycling across sessions)
         const mentorMatch =
-          normalizedMentorName && normalizedFeedbackMentorName && (
-            normalizedFeedbackMentorName === normalizedMentorName ||
-            normalizedFeedbackMentorName.includes(normalizedMentorName) ||
-            normalizedMentorName.includes(normalizedFeedbackMentorName) ||
-            // First name match
-            normalizedMentorName.split(/\s+/)[0] === normalizedFeedbackMentorName.split(/\s+/)[0]
-          );
+          normalizedMentorName && normalizedFeedbackMentorName && normalizedFeedbackMentorName === normalizedMentorName;
 
         // Match by date (use parseSessionDate for both)
         let dateMatch = false;
@@ -124,19 +114,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           }
         }
 
-        // Match if: candidate matches AND (date matches OR mentor matches OR both dates are missing)
-        // This is more flexible - if candidate and date match, mentor match is optional
-        // If candidate and mentor match, date match is optional
-        // Also allow match if candidate matches and we can't parse dates (fallback)
-        const hasCandidateMatch = candidateMatch;
-        const hasDateOrMentorMatch = dateMatch || mentorMatch || (!sessionDateParsed && !feedbackDate);
-
-        // If candidate matches but no date/mentor match, still try if dates can't be parsed
-        if (hasCandidateMatch && !hasDateOrMentorMatch && !sessionDateParsed && !feedbackDate) {
-          return true; // Fallback: match by candidate only if dates can't be parsed
-        }
-
-        return hasCandidateMatch && hasDateOrMentorMatch;
+        // Strict match to prevent recycling: candidate + mentor + exact session date
+        return candidateMatch && mentorMatch && dateMatch;
       });
 
       return matchedFeedback || null;
@@ -182,7 +161,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
       return null;
     }
 
-    const sessionDateParsed = parseSessionDate(session.date);
+      const sessionDateParsed = parseSessionDate(session.date);
     const mentorEmail = (session.mentorEmail || email || '').trim().toLowerCase();
     const mentorName = (session.mentorName || name || '').trim().toLowerCase();
     const candidateEmail = (session.studentEmail || '').trim().toLowerCase();
@@ -255,10 +234,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
         }
       }
 
-      // Prefer strong match; allow email+candidate without date when date not parseable
+      // Require a strict match: mentor, candidate and exact session date all must match.
       if (emailMatch && candidateMatch && dateMatch) return true;
-      if (emailMatch && candidateMatch && (!sessionDateParsed || !feedbackDateStr)) return true;
-      if (emailMatch && dateMatch && !candidateEmail && !candidateName) return true;
       return false;
     });
 
@@ -312,11 +289,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
             return null;
           }
 
-          // For mentees, check both session.mentorFeedback and candidateFeedbacks
-          const feedbackValue = String(s.mentorFeedback || '');
-          if (feedbackValue !== '' && feedbackValue !== 'N/A' && feedbackValue !== 'null' && feedbackValue !== 'undefined') {
-            hasFeedback = true;
-          } else if (candidateFeedbacks && candidateFeedbacks.length > 0) {
+          // For mentees, only use Candidate Feedback sheet (strict date-based match)
+          if (candidateFeedbacks && candidateFeedbacks.length > 0) {
             const matchedFeedback = getSessionFeedbackFromSheet(s);
             hasFeedback = matchedFeedback !== null;
           }
@@ -568,23 +542,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       isValidRating = true;
                     }
                   } else {
-                    // For students, check session first, then candidateFeedbacks
-                    if (session.mentorFeedback) {
-                      const value = typeof session.mentorFeedback === 'number'
-                        ? session.mentorFeedback
-                        : parseFloat(String(session.mentorFeedback));
-                      if (!isNaN(value) && value > 0 && value <= 5) {
-                        feedbackValue = value;
-                        isValidRating = true;
-                      }
-                    }
-
-                    if (!isValidRating) {
-                      const matchedFeedback = getSessionFeedbackFromSheet(session);
-                      if (matchedFeedback !== null) {
-                        feedbackValue = matchedFeedback;
-                        isValidRating = true;
-                      }
+                    // For students, only use Candidate Feedback sheet (strict date-based match)
+                    const matchedFeedback = getSessionFeedbackFromSheet(session);
+                    if (matchedFeedback !== null) {
+                      feedbackValue = matchedFeedback;
+                      isValidRating = true;
                     }
                   }
 
@@ -648,7 +610,9 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     </th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Status</th>
                     {type === 'student' && (
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Session Type</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase w-32">
+                        Session Type
+                      </th>
                     )}
                     {type === 'student' && (
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase">Feedback</th>
@@ -698,17 +662,6 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           feedbackValue = avgRating;
                           isValidRating = true;
                         }
-                      }
-                    }
-
-                    // If not found in fullFeedback, try session.mentorFeedback
-                    if (!isValidRating && session.mentorFeedback) {
-                      const value = typeof session.mentorFeedback === 'number'
-                        ? session.mentorFeedback
-                        : parseFloat(String(session.mentorFeedback));
-                      if (!isNaN(value) && value > 0 && value <= 5) {
-                        feedbackValue = value;
-                        isValidRating = true;
                       }
                     }
 
@@ -786,11 +739,15 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                             </div>
                           </td>
                           {type === 'student' && (
-                            <td className="px-4 py-2">
+                            <td className="px-4 py-2 w-32">
                               {session.sessionType ? (
-                                <span className="px-2 py-1 text-xs rounded-full text-white" style={{
-                                  backgroundColor: session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E'
-                                }}>
+                                <span
+                                  className="px-2 py-1 text-[11px] rounded-full text-white whitespace-nowrap"
+                                  style={{
+                                    backgroundColor:
+                                      session.sessionType.toLowerCase() === 'assessment' ? '#F59E0B' : '#22C55E',
+                                  }}
+                                >
                                   {session.sessionType}
                                 </span>
                               ) : (

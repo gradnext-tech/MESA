@@ -1155,13 +1155,6 @@ export default function StudentDashboard() {
                           (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
                           (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail);
 
-                        const mentorMatch =
-                          normalizedMentorName && normalizedFeedbackMentorName && (
-                            normalizedFeedbackMentorName === normalizedMentorName ||
-                            normalizedFeedbackMentorName.includes(normalizedMentorName) ||
-                            normalizedMentorName.includes(normalizedFeedbackMentorName)
-                          );
-
                         let dateMatch = false;
                         if (sessionDateParsed && feedbackDate) {
                           const feedbackDateParsed = parseSessionDate(feedbackDate);
@@ -1173,7 +1166,9 @@ export default function StudentDashboard() {
                           }
                         }
 
-                        return candidateMatch && (dateMatch || mentorMatch);
+                        // Ensure feedback is matched to the correct session by requiring both
+                        // candidate (mentee) match AND exact session date match.
+                        return candidateMatch && dateMatch;
                       });
 
                       if (matchedFeedback) {
@@ -1197,16 +1192,6 @@ export default function StudentDashboard() {
                             return avgRating;
                           }
                         }
-                      }
-                    }
-
-                    // Fallback to session.mentorFeedback
-                    if (session.mentorFeedback) {
-                      const value = typeof session.mentorFeedback === 'number'
-                        ? session.mentorFeedback
-                        : parseFloat(String(session.mentorFeedback));
-                      if (!isNaN(value) && value > 0 && value <= 5) {
-                        return value;
                       }
                     }
 
@@ -1241,13 +1226,6 @@ export default function StudentDashboard() {
                         (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
                         (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail);
 
-                      const mentorMatch =
-                        normalizedMentorName && normalizedFeedbackMentorName && (
-                          normalizedFeedbackMentorName === normalizedMentorName ||
-                          normalizedFeedbackMentorName.includes(normalizedMentorName) ||
-                          normalizedMentorName.includes(normalizedFeedbackMentorName)
-                        );
-
                       let dateMatch = false;
                       if (sessionDateParsed && feedbackDate) {
                         const feedbackDateParsed = parseSessionDate(feedbackDate);
@@ -1259,7 +1237,9 @@ export default function StudentDashboard() {
                         }
                       }
 
-                      return candidateMatch && (dateMatch || mentorMatch);
+                      // Ensure feedback is matched to the correct session by requiring both
+                      // candidate (mentee) match AND exact session date match.
+                      return candidateMatch && dateMatch;
                     });
 
                     return matchedFeedback || null;
