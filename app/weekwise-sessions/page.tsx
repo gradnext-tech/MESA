@@ -10,8 +10,9 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  FileCheck2,
 } from 'lucide-react';
-import { startOfWeek, endOfWeek, format, eachWeekOfInterval, min, max, isWithinInterval, startOfDay } from 'date-fns';
+import { startOfWeek, endOfWeek, format, eachWeekOfInterval, min, max, isWithinInterval, startOfDay, differenceInCalendarWeeks } from 'date-fns';
 import Link from 'next/link';
 
 interface WeekwiseStats {
@@ -38,10 +39,17 @@ interface WeekwiseStats {
 export default function WeekwiseSessions() {
   const { sessions, hasData, setSessions, setStudents } = useData();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isGeneratingReports, setIsGeneratingReports] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [selectedReportCandidates, setSelectedReportCandidates] = useState<string[]>([]);
+  const [selectedReportWeekStart, setSelectedReportWeekStart] = useState<Date | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
   const [isWeekwiseExpanded, setIsWeekwiseExpanded] = useState(false);
   const [isSessionDetailsExpanded, setIsSessionDetailsExpanded] = useState(true);
   const [isPendingFeedbackExpanded, setIsPendingFeedbackExpanded] = useState(true);
+  const [generatedSessionKeys, setGeneratedSessionKeys] = useState<string[]>([]);
+  const [lastReportSummary, setLastReportSummary] = useState<string | null>(null);
+  const [lastReportErrors, setLastReportErrors] = useState<string[]>([]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -71,6 +79,107 @@ export default function WeekwiseSessions() {
       // Silent error handling
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleGenerateReports = () => {
+    setIsReportModalOpen(true);
+  };
+
+  const earliestSessionDate = useMemo(() => {
+    if (!sessions.length) return null;
+    let earliest: Date | null = null;
+    sessions.forEach(s => {
+      if (!s.date) return;
+      const d = parseSessionDate(s.date);
+      if (!d) return;
+      if (!earliest || d.getTime() < earliest.getTime()) {
+        earliest = d;
+      }
+    });
+    return earliest;
+  }, [sessions]);
+
+  const uniqueCandidateNames = useMemo(() => {
+    const set = new Set<string>();
+    sessions.forEach(s => {
+      if (s.studentName) set.add(s.studentName);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [sessions]);
+
+  const getProgramWeekNumber = (date: Date): number => {
+    if (!earliestSessionDate) return 1;
+    const programWeek1Start = startOfWeek(startOfDay(earliestSessionDate), { weekStartsOn: 1 });
+    const sessionWeekStart = startOfWeek(startOfDay(date), { weekStartsOn: 1 });
+    const diffWeeks = differenceInCalendarWeeks(sessionWeekStart, programWeek1Start, {
+      weekStartsOn: 1,
+    });
+    return diffWeeks + 1;
+  };
+
+  const handleSubmitReportGeneration = async () => {
+    if (!selectedReportCandidates.length || !selectedReportWeekStart) {
+      setIsReportModalOpen(false);
+      return;
+    }
+    setIsGeneratingReports(true);
+    setLastReportSummary(null);
+    setLastReportErrors([]);
+    try {
+      const weekNumber = getProgramWeekNumber(selectedReportWeekStart);
+      let totalCreated = 0;
+      const allKeys: string[] = [];
+      const allErrors: string[] = [];
+
+      for (const candidateName of selectedReportCandidates) {
+        try {
+          const response = await fetch(getApiUrl('api/generate-session-reports'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              candidateName,
+              weekNumber,
+              dryRun: false,
+            }),
+          });
+          const result = await response.json();
+          if (response.ok && result.success) {
+            totalCreated += Number(result.created || 0);
+            const keys: string[] = Array.isArray(result.generatedSessionsKeys)
+              ? result.generatedSessionsKeys
+              : [];
+            allKeys.push(...keys);
+            if (Array.isArray(result.errors)) {
+              result.errors.forEach((e: any) => {
+                if (e?.error) allErrors.push(e.error);
+              });
+            }
+          } else {
+            allErrors.push(
+              (result && (result.error || result.message)) ||
+                `Failed to generate reports for ${candidateName}`
+            );
+          }
+        } catch (e: any) {
+          allErrors.push(
+            `Unexpected error for ${candidateName}: ${e?.message || String(e || 'unknown')}`
+          );
+        }
+      }
+
+      setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...allKeys])));
+      setLastReportSummary(
+        `Created ${totalCreated} report(s) for ${selectedReportCandidates.length} student(s) in week ${weekNumber}.`
+      );
+      setLastReportErrors(allErrors);
+    } catch {
+      // silent
+    } finally {
+      setIsGeneratingReports(false);
+      setIsReportModalOpen(false);
     }
   };
 
@@ -275,6 +384,19 @@ export default function WeekwiseSessions() {
     return 'Not Filled';
   };
 
+  const isFeedbackGeneratedForSession = (session: any): boolean => {
+    const rawDate =
+      session.date ||
+      session.Date ||
+      session['Session Date'] ||
+      session['Date of Session'] ||
+      '';
+    const key = `${String(session.studentEmail || '').toLowerCase().trim()}|${String(
+      session.mentorName || ''
+    ).trim()}|${String(rawDate)}`;
+    return generatedSessionKeys.includes(key);
+  };
+
   // Calculate mentor-wise pending feedback statistics
   const mentorPendingFeedback = useMemo(() => {
     if (!hasData || filteredSessions.length === 0) {
@@ -351,6 +473,99 @@ export default function WeekwiseSessions() {
 
   return (
     <div className="space-y-8">
+      {/* Generate report modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+          <form
+            className="bg-[#1A3636] border border-[#3A5A5A] rounded-lg p-6 w-full max-w-md shadow-xl"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSubmitReportGeneration();
+            }}
+          >
+            <h2 className="text-lg font-semibold text-white mb-4">Generate Candidate Weekly Report</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Students</label>
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-[#3A5A5A] bg-[#2A4A4A] p-2 space-y-1">
+                  {uniqueCandidateNames.map(name => {
+                    const checked = selectedReportCandidates.includes(name);
+                    return (
+                      <label
+                        key={name}
+                        className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setSelectedReportCandidates(prev =>
+                              checked ? prev.filter(n => n !== name) : [...prev, name]
+                            );
+                          }}
+                          className="w-4 h-4 rounded border-[#3A5A5A]"
+                        />
+                        <span>{name}</span>
+                      </label>
+                    );
+                  })}
+                  {uniqueCandidateNames.length === 0 && (
+                    <p className="text-xs text-gray-400">No students found.</p>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Week (start date)</label>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border text-sm bg-[#2A4A4A] border-[#3A5A5A] text-white"
+                  value={
+                    selectedReportWeekStart
+                      ? startOfWeek(selectedReportWeekStart, { weekStartsOn: 1 }).toISOString()
+                      : ''
+                  }
+                  onChange={(e) => {
+                    if (!e.target.value) {
+                      setSelectedReportWeekStart(null);
+                    } else {
+                      setSelectedReportWeekStart(new Date(e.target.value));
+                    }
+                  }}
+                >
+                  <option value="">Select week</option>
+                  {weekwiseStats.map(stat => {
+                    const ws = startOfWeek(stat.weekStart, { weekStartsOn: 1 });
+                    return (
+                      <option key={ws.toISOString()} value={ws.toISOString()}>
+                        {stat.weekLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReportModalOpen(false)}
+                  className="px-4 py-2 text-sm rounded-lg bg-[#2A4A4A] text-gray-300 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isGeneratingReports ||
+                    !selectedReportWeekStart ||
+                    selectedReportCandidates.length === 0
+                  }
+                  className="px-4 py-2 text-sm rounded-lg bg-[#22C55E] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGeneratingReports ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -359,29 +574,71 @@ export default function WeekwiseSessions() {
             Overview of all sessions organized by week (Monday to Sunday)
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{
-            backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
-            color: '#fff'
-          }}
-          onMouseEnter={(e) => {
-            if (!isRefreshing) {
-              e.currentTarget.style.backgroundColor = '#16A34A';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isRefreshing) {
-              e.currentTarget.style.backgroundColor = '#22C55E';
-            }
-          }}
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleGenerateReports}
+            disabled={isGeneratingReports}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: isGeneratingReports ? '#3A5A5A' : '#1F2933',
+              color: '#fff',
+              border: '1px solid #FBBF24',
+            }}
+            onMouseEnter={(e) => {
+              if (!isGeneratingReports) {
+                e.currentTarget.style.backgroundColor = '#111827';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isGeneratingReports) {
+                e.currentTarget.style.backgroundColor = '#1F2933';
+              }
+            }}
+          >
+            <FileCheck2 className={`w-4 h-4 ${isGeneratingReports ? 'animate-pulse' : ''}`} />
+            {isGeneratingReports ? 'Generating Reports...' : 'Generate Session Reports'}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: isRefreshing ? '#3A5A5A' : '#22C55E',
+              color: '#fff'
+            }}
+            onMouseEnter={(e) => {
+              if (!isRefreshing) {
+                e.currentTarget.style.backgroundColor = '#16A34A';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isRefreshing) {
+                e.currentTarget.style.backgroundColor = '#22C55E';
+              }
+            }}
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+        </div>
       </div>
+
+      {/* Last report status */}
+      {lastReportSummary && (
+        <div className="rounded-lg border border-[#3A5A5A] bg-[#1A3636] p-4 space-y-2">
+          <p className="text-sm text-gray-100">{lastReportSummary}</p>
+          {lastReportErrors.length > 0 && (
+            <ul className="text-xs text-red-300 list-disc list-inside space-y-1">
+              {lastReportErrors.slice(0, 5).map((err, idx) => (
+                <li key={idx}>{err}</li>
+              ))}
+              {lastReportErrors.length > 5 && (
+                <li>+{lastReportErrors.length - 5} more error(s) (see server logs)</li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Weekwise Statistics Table */}
       <div className="rounded-xl shadow-md border overflow-hidden" style={{ backgroundColor: '#2A4A4A', borderColor: '#3A5A5A' }}>
@@ -650,6 +907,9 @@ export default function WeekwiseSessions() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Mentor Feedback Status
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Feedback Generated
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
@@ -734,16 +994,27 @@ export default function WeekwiseSessions() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span
-                              className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${feedbackStatus === 'Filled'
-                                  ? 'text-white'
-                                  : 'text-gray-300'
-                                }`}
+                              className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                feedbackStatus === 'Filled' ? 'text-white' : 'text-gray-300'
+                              }`}
                               style={{
-                                backgroundColor: feedbackStatus === 'Filled' ? '#22C55E' : '#6B7280'
+                                backgroundColor:
+                                  feedbackStatus === 'Filled' ? '#22C55E' : '#6B7280',
                               }}
                             >
                               {feedbackStatus}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {isFeedbackGeneratedForSession(session) ? (
+                              <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full text-white" style={{ backgroundColor: '#22C55E' }}>
+                                Generated
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full text-gray-300" style={{ backgroundColor: '#4B5563' }}>
+                                Not Generated
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
