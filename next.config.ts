@@ -3,9 +3,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   basePath: "/mesadashboard",
   assetPrefix: "/mesadashboard",
-  // Ensure heavy server-only deps are loaded from Node at runtime
-  // rather than bundled into Turbopack output.
-  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
   turbopack: {},
   
   // Security headers

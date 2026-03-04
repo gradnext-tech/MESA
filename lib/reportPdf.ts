@@ -1,4 +1,3 @@
-import { launchBrowser } from '@/lib/chromium';
 import { MentorSessionFeedbackContext, generateReportBodyWithOpenAI } from './googleDrive';
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { format } from 'date-fns';
@@ -354,40 +353,40 @@ function buildWeekHtmlTemplate(
 }
 
 async function renderHtmlToPdf(html: string): Promise<Buffer> {
-  const launch = async (useSafeMode: boolean) => {
-    const browser = await launchBrowser();
-    try {
-      const page = await browser.newPage();
-      if (useSafeMode) {
-        // Simpler load path to avoid Chromium timing issues
-        await page.setContent(html);
-      } else {
-        await page.setContent(html, { waitUntil: 'networkidle0' });
-      }
-      const pdf = await page.pdf({
+  const apiUrl = process.env.PLAYWRIGHT_API_URL;
+  const apiKey = process.env.PLAYWRIGHT_API_KEY;
+
+  if (!apiUrl || !apiKey) {
+    throw new Error(
+      'PLAYWRIGHT_API_URL and PLAYWRIGHT_API_KEY must be set to generate PDFs with the Playwright API.'
+    );
+  }
+
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      html,
+      pdfOptions: {
         format: 'A4',
         printBackground: true,
         margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
-      });
-      return Buffer.from(pdf);
-    } finally {
-      await browser.close().catch(() => {});
-    }
-  };
+      },
+    }),
+  });
 
-  try {
-    return await launch(false);
-  } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (
-      msg.includes('Requesting main frame too early') ||
-      msg.includes('Attempted to use detached Frame')
-    ) {
-      // Retry once in "safe mode" for these transient Chromium frame errors
-      return await launch(true);
-    }
-    throw err;
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      `Playwright API error (${response.status} ${response.statusText}): ${text}`
+    );
   }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 export async function generateSessionFeedbackPdfFromContext(
