@@ -280,9 +280,9 @@ export async function generateSessionFeedbackPdfFromContext(
     doc.y = topY + metaHeight + 14;
     resetCursor(doc);
 
-    // Performance Breakdown (aligned to the right, like the template)
-    const tableWidth = 300;
-    const tableX = pageRight(doc) - tableWidth;
+    // Performance Breakdown (left aligned for smoother flow)
+    const tableWidth = Math.min(340, contentWidth(doc));
+    const tableX = pageLeft(doc);
     const tableHeadingY = doc.y;
 
     doc.fontSize(12).font(FONT_BOLD).fillColor('#111827');
@@ -310,7 +310,7 @@ export async function generateSessionFeedbackPdfFromContext(
       rows,
     });
 
-    doc.y = tableBottomY + 18;
+    doc.y = tableBottomY + 20;
     resetCursor(doc);
 
     // Feedback Summary
@@ -409,9 +409,9 @@ export async function generateCandidateWeekSummaryPdf(
 
       doc.moveDown(2);
 
-      // Ratings table (aligned right for consistency)
-      const tableWidth = 300;
-      const tableX = pageRight(doc) - tableWidth;
+      // Ratings table (left aligned for consistency with main report)
+      const tableWidth = Math.min(340, contentWidth(doc));
+      const tableX = pageLeft(doc);
 
       const rows: Array<[string, string]> = [
         ['Scoping Questions', c.ratings.scoping || 'NA'],
