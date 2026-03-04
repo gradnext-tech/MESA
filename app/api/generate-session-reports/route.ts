@@ -10,6 +10,7 @@ import {
 import { generateSessionFeedbackPdfFromContext, generateCandidateWeekSummaryPdf } from '@/lib/reportPdf';
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { endOfWeek, format, startOfWeek } from 'date-fns';
+import { google } from 'googleapis';
 
 type SheetsRow = { [key: string]: any };
 
@@ -107,6 +108,89 @@ function getEarliestSessionDateRaw(sessions: SheetsRow[]): string {
   return earliestRaw || new Date().toISOString().slice(0, 10);
 }
 
+function getSheetsWriteClient() {
+  const credentialsString = process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
+  if (!credentialsString) {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_CREDENTIALS environment variable not found');
+  }
+
+  let credentials: any;
+  try {
+    credentials = JSON.parse(credentialsString);
+  } catch {
+    throw new Error(
+      "Invalid JSON in GOOGLE_SERVICE_ACCOUNT_CREDENTIALS. Make sure it's a valid JSON string."
+    );
+  }
+
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  return google.sheets({ version: 'v4', auth });
+}
+
+function columnIndexToLetter(index: number): string {
+  // 0 -> A, 25 -> Z, 26 -> AA ...
+  let result = '';
+  let i = index;
+  while (i >= 0) {
+    result = String.fromCharCode((i % 26) + 65) + result;
+    i = Math.floor(i / 26) - 1;
+  }
+  return result;
+}
+
+async function markReportsGenerated(
+  spreadsheetId: string,
+  sheetName: string,
+  headerRowNumber: number,
+  rowNumbers: number[]
+) {
+  if (!rowNumbers.length) return;
+
+  const sheets = getSheetsWriteClient();
+
+  // Read the header row to find or create the "Report Generated" column
+  const headerRange = `'${sheetName.replace(/'/g, "''")}'!A${headerRowNumber}:ZZ${headerRowNumber}`;
+  const headerResp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: headerRange,
+  });
+
+  const headerRow = headerResp.data.values?.[0] || [];
+  let colIndex = headerRow.findIndex(
+    (h) => String(h || '').trim().toLowerCase() === 'report generated'
+  );
+
+  if (colIndex === -1) {
+    // Append new header cell
+    colIndex = headerRow.length;
+    const colLetter = columnIndexToLetter(colIndex);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName.replace(/'/g, "''")}'!${colLetter}${headerRowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [['Report Generated']] },
+    });
+  }
+
+  const colLetter = columnIndexToLetter(colIndex);
+
+  // Write "Yes" for each generated row
+  const requests = rowNumbers.map((rowNumber) =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName.replace(/'/g, "''")}'!${colLetter}${rowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [['Yes']] },
+    })
+  );
+
+  await Promise.all(requests);
+}
+
 export async function POST(request: NextRequest) {
   if (!isAuthenticated(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -181,6 +265,8 @@ export async function POST(request: NextRequest) {
     const errors: Array<{ menteeEmail: string; sessionDate: string; error: string }> = [];
     const generatedSessionsKeys: string[] = [];
     const candidateWeekSessions: CandidateWeekSession[] = [];
+    const reportRowNumbers: number[] = [];
+    let reportHeaderRowNumber: number | null = null;
 
     for (const row of candidateRows) {
       if (limit && created >= limit) {
@@ -384,6 +470,20 @@ export async function POST(request: NextRequest) {
 
           await uploadPdfToDrive(pdfBuffer, filename, weekFolderId);
 
+          // Track the sheet row so we can mark "Report Generated" = Yes
+          const rowNumber =
+            typeof row._rowNumber === 'number' && row._rowNumber > 0 ? row._rowNumber : null;
+          const headerRowNumber =
+            typeof row._headerRowNumber === 'number' && row._headerRowNumber > 0
+              ? row._headerRowNumber
+              : null;
+          if (rowNumber && headerRowNumber) {
+            reportRowNumbers.push(rowNumber);
+            if (reportHeaderRowNumber == null) {
+              reportHeaderRowNumber = headerRowNumber;
+            }
+          }
+
           // Collect for candidate+week summary if requested
           if (filterCandidateName && filterWeekNumber !== undefined) {
             const summaryText = await generateReportBodyWithOpenAI(context);
@@ -460,6 +560,22 @@ export async function POST(request: NextRequest) {
           sessionDate: candidateWeekSessions[0].context.sessionDateRaw,
           error: err?.message || 'Failed to generate weekly summary report',
         });
+      }
+    }
+
+    // Mark generated rows in the "Candidate feedback form filled by mentors" sheet
+    if (!dryRun && reportRowNumbers.length && reportHeaderRowNumber && feedbacksSpreadsheetId) {
+      try {
+        await markReportsGenerated(
+          feedbacksSpreadsheetId,
+          'Candidate feedback form filled by mentors',
+          reportHeaderRowNumber,
+          Array.from(new Set(reportRowNumbers))
+        );
+      } catch (err) {
+        // Do not fail the main request if marking fails
+        // eslint-disable-next-line no-console
+        console.warn('Failed to mark reports as generated in sheet:', err);
       }
     }
 

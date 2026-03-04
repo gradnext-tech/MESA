@@ -6,6 +6,7 @@ interface SheetData {
 
 /**
  * Initialize Google Sheets API client with service account credentials
+ * (read access is enough for most operations; write helpers create their own client)
  */
 function getGoogleSheetsClient() {
   // Parse the service account credentials from environment variable
@@ -170,6 +171,10 @@ export async function fetchSheetData(
       });
 
       if (hasData) {
+        // Attach metadata to help write operations map back to sheet rows/columns
+        rowData._rowNumber = i + 1; // 1-based row index in the sheet
+        rowData._headerRowNumber = headerRowIndex + 1; // 1-based header row index
+        rowData._sheetName = exactSheetName;
         data.push(rowData);
       }
     }

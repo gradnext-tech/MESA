@@ -43,6 +43,9 @@ export default function WeekwiseSessions() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedReportCandidates, setSelectedReportCandidates] = useState<string[]>([]);
   const [selectedReportWeekStart, setSelectedReportWeekStart] = useState<Date | null>(null);
+  const [isAllStudentsForWeek, setIsAllStudentsForWeek] = useState(false);
+  const [selectedStudentForHistory, setSelectedStudentForHistory] = useState<string>('');
+  const [reportMode, setReportMode] = useState<'weekly' | 'studentHistory' | 'allTillDate'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
   const [isWeekwiseExpanded, setIsWeekwiseExpanded] = useState(false);
   const [isSessionDetailsExpanded, setIsSessionDetailsExpanded] = useState(true);
@@ -83,6 +86,7 @@ export default function WeekwiseSessions() {
   };
 
   const handleGenerateReports = () => {
+    setReportMode('weekly');
     setIsReportModalOpen(true);
   };
 
@@ -119,8 +123,11 @@ export default function WeekwiseSessions() {
   };
 
   const handleSubmitReportGeneration = async () => {
-    if (!selectedReportCandidates.length || !selectedReportWeekStart) {
-      setIsReportModalOpen(false);
+    const candidatesToRun = isAllStudentsForWeek
+      ? uniqueCandidateNames
+      : selectedReportCandidates;
+
+    if (!candidatesToRun.length || !selectedReportWeekStart) {
       return;
     }
     setIsGeneratingReports(true);
@@ -132,7 +139,7 @@ export default function WeekwiseSessions() {
       const allKeys: string[] = [];
       const allErrors: string[] = [];
 
-      for (const candidateName of selectedReportCandidates) {
+      for (const candidateName of candidatesToRun) {
         try {
           const response = await fetch(getApiUrl('api/generate-session-reports'), {
             method: 'POST',
@@ -172,14 +179,53 @@ export default function WeekwiseSessions() {
 
       setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...allKeys])));
       setLastReportSummary(
-        `Created ${totalCreated} report(s) for ${selectedReportCandidates.length} student(s) in week ${weekNumber}.`
+        `Created ${totalCreated} report(s) for ${candidatesToRun.length} student(s) in week ${weekNumber}.`
       );
       setLastReportErrors(allErrors);
     } catch {
       // silent
     } finally {
       setIsGeneratingReports(false);
-      setIsReportModalOpen(false);
+    }
+  };
+
+  const handleGenerateAllReportsTillDate = async () => {
+    setIsGeneratingReports(true);
+    setLastReportSummary(null);
+    setLastReportErrors([]);
+    try {
+      const response = await fetch(getApiUrl('api/generate-session-reports'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false }),
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        const keys: string[] = Array.isArray(result.generatedSessionsKeys)
+          ? result.generatedSessionsKeys
+          : [];
+        setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...keys])));
+        setLastReportSummary(
+          `Created ${Number(result.created || 0)} report(s) for all students across all weeks.`
+        );
+        if (Array.isArray(result.errors)) {
+          const errs: string[] = [];
+          result.errors.forEach((e: any) => {
+            if (e?.error) errs.push(e.error);
+          });
+          setLastReportErrors(errs);
+        }
+      } else {
+        setLastReportSummary('Failed to generate reports for all sessions.');
+        if (result?.error || result?.message) {
+          setLastReportErrors([result.error || result.message]);
+        }
+      }
+    } catch (e: any) {
+      setLastReportSummary('Failed to generate reports for all sessions.');
+      setLastReportErrors([e?.message || String(e || 'unknown')]);
+    } finally {
+      setIsGeneratingReports(false);
     }
   };
 
@@ -391,10 +437,71 @@ export default function WeekwiseSessions() {
       session['Session Date'] ||
       session['Date of Session'] ||
       '';
-    const key = `${String(session.studentEmail || '').toLowerCase().trim()}|${String(
+    const key = `${String(session.studentName || '').trim()}|${String(
       session.mentorName || ''
     ).trim()}|${String(rawDate)}`;
     return generatedSessionKeys.includes(key);
+  };
+
+  const canSubmit =
+    reportMode === 'weekly'
+      ? !!selectedReportWeekStart &&
+        (isAllStudentsForWeek
+          ? uniqueCandidateNames.length > 0
+          : selectedReportCandidates.length > 0)
+      : reportMode === 'studentHistory'
+      ? !!selectedStudentForHistory
+      : true;
+
+  const handleSubmitGenerate = async () => {
+    if (reportMode === 'weekly') {
+      await handleSubmitReportGeneration();
+    } else if (reportMode === 'studentHistory') {
+      if (!selectedStudentForHistory) return;
+      setIsGeneratingReports(true);
+      setLastReportSummary(null);
+      setLastReportErrors([]);
+      try {
+        const response = await fetch(getApiUrl('api/generate-session-reports'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            candidateName: selectedStudentForHistory,
+            dryRun: false,
+          }),
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+          const keys: string[] = Array.isArray(result.generatedSessionsKeys)
+            ? result.generatedSessionsKeys
+            : [];
+          setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...keys])));
+          setLastReportSummary(
+            `Created ${Number(result.created || 0)} report(s) for ${selectedStudentForHistory} (all weeks).`
+          );
+          if (Array.isArray(result.errors)) {
+            const errs: string[] = [];
+            result.errors.forEach((e: any) => {
+              if (e?.error) errs.push(e.error);
+            });
+            setLastReportErrors(errs);
+          }
+        } else {
+          setLastReportSummary(`Failed to generate reports for ${selectedStudentForHistory}.`);
+          if (result?.error || result?.message) {
+            setLastReportErrors([result.error || result.message]);
+          }
+        }
+      } catch (e: any) {
+        setLastReportSummary(`Failed to generate reports for ${selectedStudentForHistory}.`);
+        setLastReportErrors([e?.message || String(e || 'unknown')]);
+      } finally {
+        setIsGeneratingReports(false);
+      }
+    } else {
+      await handleGenerateAllReportsTillDate();
+    }
+    setIsReportModalOpen(false);
   };
 
   // Calculate mentor-wise pending feedback statistics
@@ -475,88 +582,186 @@ export default function WeekwiseSessions() {
     <div className="space-y-8">
       {/* Generate report modal */}
       {isReportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900/70 via-slate-900/40 to-emerald-900/60 backdrop-blur-sm">
           <form
-            className="bg-[#1A3636] border border-[#3A5A5A] rounded-lg p-6 w-full max-w-md shadow-xl"
+            className="bg-[#102525] border border-[#3A5A5A] rounded-2xl p-6 w-full max-w-xl shadow-2xl"
             onSubmit={(e) => {
               e.preventDefault();
-              handleSubmitReportGeneration();
+              if (!canSubmit || isGeneratingReports) return;
+              handleSubmitGenerate();
             }}
           >
-            <h2 className="text-lg font-semibold text-white mb-4">Generate Candidate Weekly Report</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Students</label>
-                <div className="max-h-40 overflow-y-auto rounded-lg border border-[#3A5A5A] bg-[#2A4A4A] p-2 space-y-1">
-                  {uniqueCandidateNames.map(name => {
-                    const checked = selectedReportCandidates.includes(name);
-                    return (
-                      <label
-                        key={name}
-                        className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setSelectedReportCandidates(prev =>
-                              checked ? prev.filter(n => n !== name) : [...prev, name]
-                            );
-                          }}
-                          className="w-4 h-4 rounded border-[#3A5A5A]"
-                        />
-                        <span>{name}</span>
-                      </label>
-                    );
-                  })}
-                  {uniqueCandidateNames.length === 0 && (
-                    <p className="text-xs text-gray-400">No students found.</p>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Week (start date)</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg border text-sm bg-[#2A4A4A] border-[#3A5A5A] text-white"
-                  value={
-                    selectedReportWeekStart
-                      ? startOfWeek(selectedReportWeekStart, { weekStartsOn: 1 }).toISOString()
-                      : ''
-                  }
-                  onChange={(e) => {
-                    if (!e.target.value) {
-                      setSelectedReportWeekStart(null);
-                    } else {
-                      setSelectedReportWeekStart(new Date(e.target.value));
-                    }
-                  }}
+            <h2 className="text-xl font-semibold text-white mb-2">Generate Session Reports</h2>
+            <p className="text-xs text-gray-300 mb-4">
+              Choose what you want to generate: weekly candidate reports, full history for a student, or all reports till date.
+            </p>
+            <div className="space-y-5">
+              <div className="grid grid-cols-3 gap-2 rounded-xl bg-[#152c2c] p-1 border border-[#264343]">
+                <button
+                  type="button"
+                  onClick={() => setReportMode('weekly')}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    reportMode === 'weekly'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : 'text-gray-200 hover:bg-[#1f3a3a]'
+                  }`}
                 >
-                  <option value="">Select week</option>
-                  {weekwiseStats.map(stat => {
-                    const ws = startOfWeek(stat.weekStart, { weekStartsOn: 1 });
-                    return (
-                      <option key={ws.toISOString()} value={ws.toISOString()}>
-                        {stat.weekLabel}
-                      </option>
-                    );
-                  })}
-                </select>
+                  Weekly (by week)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportMode('studentHistory')}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    reportMode === 'studentHistory'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : 'text-gray-200 hover:bg-[#1f3a3a]'
+                  }`}
+                >
+                  Student history
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportMode('allTillDate')}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    reportMode === 'allTillDate'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : 'text-gray-200 hover:bg-[#1f3a3a]'
+                  }`}
+                >
+                  All reports (till date)
+                </button>
               </div>
+
+              {reportMode === 'weekly' && (
+                <>
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[#173232] border border-[#3A5A5A]">
+                    <div className="flex flex-col">
+                      <span className="text-sm text-gray-100">
+                        Generate for all students in selected week
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        When enabled, reports will be generated for every student with sessions in the chosen week.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAllStudentsForWeek(v => !v)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        isAllStudentsForWeek ? 'bg-emerald-500' : 'bg-gray-500'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          isAllStudentsForWeek ? 'translate-x-5' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Students</label>
+                      <div className="max-h-48 overflow-y-auto rounded-lg border border-[#3A5A5A] bg-[#1a3434] p-2 space-y-1">
+                        {uniqueCandidateNames.map(name => {
+                          const checked = selectedReportCandidates.includes(name);
+                          return (
+                            <label
+                              key={name}
+                              className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isAllStudentsForWeek ? true : checked}
+                                disabled={isAllStudentsForWeek}
+                                onChange={() => {
+                                  setSelectedReportCandidates(prev =>
+                                    checked ? prev.filter(n => n !== name) : [...prev, name]
+                                  );
+                                }}
+                                className="w-4 h-4 rounded border-[#3A5A5A]"
+                              />
+                              <span>{name}</span>
+                            </label>
+                          );
+                        })}
+                        {uniqueCandidateNames.length === 0 && (
+                          <p className="text-xs text-gray-400">No students found.</p>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-300 mb-1">Week (start date)</label>
+                      <select
+                        className="w-full px-3 py-2 rounded-lg border text-sm bg-[#1a3434] border-[#3A5A5A] text-white"
+                        value={
+                          selectedReportWeekStart
+                            ? startOfWeek(selectedReportWeekStart, { weekStartsOn: 1 }).toISOString()
+                            : ''
+                        }
+                        onChange={(e) => {
+                          if (!e.target.value) {
+                            setSelectedReportWeekStart(null);
+                          } else {
+                            setSelectedReportWeekStart(new Date(e.target.value));
+                          }
+                        }}
+                      >
+                        <option value="">Select week</option>
+                        {weekwiseStats.map(stat => {
+                          const ws = startOfWeek(stat.weekStart, { weekStartsOn: 1 });
+                          return (
+                            <option key={ws.toISOString()} value={ws.toISOString()}>
+                              {stat.weekLabel}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {reportMode === 'studentHistory' && (
+                <div className="space-y-2 rounded-lg border border-[#3A5A5A] bg-[#173232] p-4">
+                  <p className="text-xs text-gray-300 mb-1">
+                    Generate reports for every session of a single student across all weeks.
+                  </p>
+                  <label className="block text-sm text-gray-300 mb-1">Student</label>
+                  <select
+                    className="w-full px-3 py-2 rounded-lg border text-sm bg-[#1a3434] border-[#3A5A5A] text-white"
+                    value={selectedStudentForHistory}
+                    onChange={(e) => setSelectedStudentForHistory(e.target.value)}
+                  >
+                    <option value="">Select student</option>
+                    {uniqueCandidateNames.map(name => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {reportMode === 'allTillDate' && (
+                <div className="space-y-2 rounded-lg border border-[#3A5A5A] bg-[#173232] p-4">
+                  <h3 className="text-sm font-medium text-gray-100">All reports till date</h3>
+                  <p className="text-xs text-gray-300">
+                    This will generate missing reports for all students across all sessions and weeks.
+                    Existing reports in Drive will not be deleted.
+                  </p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsReportModalOpen(false)}
-                  className="px-4 py-2 text-sm rounded-lg bg-[#2A4A4A] text-gray-300 hover:text-white"
+                  className="px-4 py-2 text-sm rounded-lg bg-[#1a3434] text-gray-300 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={
-                    isGeneratingReports ||
-                    !selectedReportWeekStart ||
-                    selectedReportCandidates.length === 0
-                  }
+                  disabled={isGeneratingReports || !canSubmit}
                   className="px-4 py-2 text-sm rounded-lg bg-[#22C55E] text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isGeneratingReports ? 'Generating...' : 'Generate'}
@@ -566,6 +771,7 @@ export default function WeekwiseSessions() {
           </form>
         </div>
       )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -578,25 +784,10 @@ export default function WeekwiseSessions() {
           <button
             onClick={handleGenerateReports}
             disabled={isGeneratingReports}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: isGeneratingReports ? '#3A5A5A' : '#1F2933',
-              color: '#fff',
-              border: '1px solid #FBBF24',
-            }}
-            onMouseEnter={(e) => {
-              if (!isGeneratingReports) {
-                e.currentTarget.style.backgroundColor = '#111827';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isGeneratingReports) {
-                e.currentTarget.style.backgroundColor = '#1F2933';
-              }
-            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-[#22C55E] hover:bg-[#16A34A] text-white shadow-sm border border-transparent"
           >
             <FileCheck2 className={`w-4 h-4 ${isGeneratingReports ? 'animate-pulse' : ''}`} />
-            {isGeneratingReports ? 'Generating Reports...' : 'Generate Session Reports'}
+            {isGeneratingReports ? 'Generating Reports...' : 'Generate Reports'}
           </button>
           <button
             onClick={handleRefresh}

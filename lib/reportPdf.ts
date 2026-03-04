@@ -359,30 +359,23 @@ export async function generateCandidateWeekSummaryPdf(
 
     const { regular: FONT_REGULAR, bold: FONT_BOLD } = tryRegisterReportFonts(doc);
 
-    // Header
-    drawTopHeader(doc, 'gradnext', candidateName || '', FONT_BOLD);
-
-    doc
-      .fontSize(12)
-      .font(FONT_REGULAR)
-      .fillColor('#4b5563')
-      .text(weekLabel, { align: 'left' });
-
-    doc.moveDown(1);
-    drawDivider(doc);
-
     sessions.forEach((s, idx) => {
       const c = s.context;
 
       if (idx > 0) {
-        doc
-          .moveDown(1.5)
-          .strokeColor('#e5e7eb')
-          .moveTo(doc.page.margins.left, doc.y)
-          .lineTo(doc.page.width - doc.page.margins.right, doc.y)
-          .stroke()
-          .moveDown(1);
+        doc.addPage();
       }
+
+      // Page header for each session in the weekly summary
+      drawTopHeader(doc, 'gradnext', candidateName || '', FONT_BOLD);
+      doc
+        .fontSize(12)
+        .font(FONT_REGULAR)
+        .fillColor('#4b5563')
+        .text(weekLabel, { align: 'left' });
+
+      doc.moveDown(1);
+      drawDivider(doc);
 
       doc
         .fontSize(12)
