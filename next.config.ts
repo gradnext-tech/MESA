@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   basePath: "/mesadashboard",
   assetPrefix: "/mesadashboard",
+  // Ensure server-only deps like pdfkit are loaded from Node at runtime
+  // instead of being bundled into Turbopack (which causes /ROOT/... paths).
+  serverExternalPackages: ["pdfkit"],
   turbopack: {},
   
   // Security headers
