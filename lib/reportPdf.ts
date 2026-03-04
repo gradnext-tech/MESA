@@ -1,5 +1,4 @@
-import chromium from '@sparticuz/chromium';
-import puppeteer from 'puppeteer-core';
+import { launchBrowser } from '@/lib/chromium';
 import { MentorSessionFeedbackContext, generateReportBodyWithOpenAI } from './googleDrive';
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { format } from 'date-fns';
@@ -355,23 +354,8 @@ function buildWeekHtmlTemplate(
 }
 
 async function renderHtmlToPdf(html: string): Promise<Buffer> {
-  const isDev = process.env.NODE_ENV !== 'production';
-
   const launch = async (useSafeMode: boolean) => {
-    const launchOptions = isDev
-      ? {
-          // Local dev: use system Chrome only, without chromium args
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-          headless: true,
-        }
-      : {
-          // Production (Vercel): use lambda-friendly chromium with its args
-          args: chromium.args,
-          executablePath: await chromium.executablePath(),
-          headless: true,
-        };
-
-    const browser = await puppeteer.launch(launchOptions as any);
+    const browser = await launchBrowser();
     try {
       const page = await browser.newPage();
       if (useSafeMode) {
