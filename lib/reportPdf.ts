@@ -5,6 +5,16 @@ import { MentorSessionFeedbackContext, generateReportBodyWithOpenAI } from './go
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { format } from 'date-fns';
 
+function pageLeft(doc: PDFKit.PDFDocument) {
+  return doc.page.margins.left;
+}
+function pageRight(doc: PDFKit.PDFDocument) {
+  return doc.page.width - doc.page.margins.right;
+}
+function contentWidth(doc: PDFKit.PDFDocument) {
+  return pageRight(doc) - pageLeft(doc);
+}
+
 function isSupportedFontFile(filePath: string): boolean {
   try {
     const fd = fs.openSync(filePath, 'r');
@@ -56,6 +66,164 @@ function tryRegisterReportFonts(doc: PDFKit.PDFDocument): { regular: string; bol
   return { regular, bold };
 }
 
+function fitFontSizeToWidth(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  maxWidth: number,
+  fontName: string,
+  startSize: number,
+  minSize: number
+) {
+  let size = startSize;
+  doc.font(fontName).fontSize(size);
+  while (size > minSize && doc.widthOfString(text) > maxWidth) {
+    size -= 1;
+    doc.fontSize(size);
+  }
+  return size;
+}
+
+function resetCursor(doc: PDFKit.PDFDocument) {
+  doc.x = pageLeft(doc);
+}
+
+function drawTopHeader(doc: PDFKit.PDFDocument, brand: string, name: string, fontBold: string) {
+  const left = pageLeft(doc);
+  const right = pageRight(doc);
+  const y = doc.y;
+
+  const brandSize = 20;
+  const nameStartSize = 20;
+  const minNameSize = 14;
+
+  doc.fillColor('#111827').font(fontBold).fontSize(brandSize);
+  doc.text(brand, left, y, { lineBreak: false });
+  const brandLineHeight = doc.currentLineHeight(true);
+
+  const maxNameWidth = Math.max(140, Math.floor(contentWidth(doc) * 0.6));
+  const fittedNameSize = fitFontSizeToWidth(
+    doc,
+    name || '',
+    maxNameWidth,
+    fontBold,
+    nameStartSize,
+    minNameSize
+  );
+  doc.font(fontBold).fontSize(fittedNameSize);
+  const nameWidth = doc.widthOfString(name || '');
+  const nameX = Math.max(left + 140, right - nameWidth);
+  doc.text(name || '', nameX, y, { lineBreak: false });
+  const nameLineHeight = doc.currentLineHeight(true);
+
+  doc.y = y + Math.max(brandLineHeight, nameLineHeight) + 8;
+  resetCursor(doc);
+}
+
+function drawDivider(doc: PDFKit.PDFDocument) {
+  const left = pageLeft(doc);
+  const right = pageRight(doc);
+  doc
+    .strokeColor('#e5e7eb')
+    .lineWidth(1)
+    .moveTo(left, doc.y)
+    .lineTo(right, doc.y)
+    .stroke();
+  doc.moveDown(1);
+  resetCursor(doc);
+}
+
+function drawRatingsTable(
+  doc: PDFKit.PDFDocument,
+  opts: {
+    x: number;
+    y: number;
+    width: number;
+    fontRegular: string;
+    fontBold: string;
+    rows: Array<[string, string]>;
+  }
+): number {
+  const { x, y, width, fontRegular, fontBold, rows } = opts;
+
+  const colScoreWidth = 44;
+  const colLabelWidth = width - colScoreWidth;
+  const rowHeight = 18;
+  const border = '#d1d5db';
+  const headerBg = '#f3f4f6';
+  const textColor = '#111827';
+
+  let cursorY = y;
+
+  // Header row
+  doc
+    .rect(x, cursorY, width, rowHeight)
+    .fillColor(headerBg)
+    .fill();
+  doc
+    .rect(x, cursorY, width, rowHeight)
+    .strokeColor(border)
+    .lineWidth(1)
+    .stroke();
+  doc
+    .moveTo(x + colLabelWidth, cursorY)
+    .lineTo(x + colLabelWidth, cursorY + rowHeight)
+    .strokeColor(border)
+    .lineWidth(1)
+    .stroke();
+
+  doc.fillColor(textColor).font(fontBold).fontSize(10);
+  doc.text('Parameter', x + 6, cursorY + 4, { width: colLabelWidth - 12, lineBreak: false });
+  doc.text('Score', x + colLabelWidth + 6, cursorY + 4, {
+    width: colScoreWidth - 12,
+    align: 'left',
+    lineBreak: false,
+  });
+
+  cursorY += rowHeight;
+
+  doc.font(fontRegular).fontSize(10);
+  rows.forEach(([label, value], idx) => {
+    // Alternate row shading (subtle)
+    if (idx % 2 === 0) {
+      doc
+        .rect(x, cursorY, width, rowHeight)
+        .fillColor('#ffffff')
+        .fill();
+    } else {
+      doc
+        .rect(x, cursorY, width, rowHeight)
+        .fillColor('#fafafa')
+        .fill();
+    }
+
+    doc
+      .rect(x, cursorY, width, rowHeight)
+      .strokeColor(border)
+      .lineWidth(1)
+      .stroke();
+    doc
+      .moveTo(x + colLabelWidth, cursorY)
+      .lineTo(x + colLabelWidth, cursorY + rowHeight)
+      .strokeColor(border)
+      .lineWidth(1)
+      .stroke();
+
+    doc.fillColor(textColor);
+    doc.text(label, x + 6, cursorY + 4, { width: colLabelWidth - 12, lineBreak: false });
+    doc.text(value || 'NA', x + colLabelWidth + 6, cursorY + 4, {
+      width: colScoreWidth - 12,
+      align: 'left',
+      lineBreak: false,
+    });
+
+    cursorY += rowHeight;
+  });
+
+  // Important: drawing at absolute positions leaves doc.x wherever the last text landed.
+  resetCursor(doc);
+  return cursorY;
+}
+
 export async function generateSessionFeedbackPdfFromContext(
   context: MentorSessionFeedbackContext & {
     ratings: {
@@ -83,24 +251,14 @@ export async function generateSessionFeedbackPdfFromContext(
     const formattedDate = sessionDate ? format(sessionDate, 'MMMM d, yyyy') : context.sessionDateRaw;
 
     // Header
-    doc
-      .fontSize(20)
-      .font(FONT_BOLD)
-      .text('gradnext', { align: 'left' });
-
-    doc
-      .fontSize(18)
-      .font(FONT_BOLD)
-      .text(context.menteeName || '', { align: 'right' });
-
-    doc.moveDown(1);
-
-    doc.fontSize(10).font(FONT_REGULAR);
+    drawTopHeader(doc, 'gradnext', context.menteeName || '', FONT_BOLD);
+    drawDivider(doc);
 
     // Meta information (two columns)
-    const leftX = doc.x;
+    doc.fontSize(10).font(FONT_REGULAR).fillColor('#374151');
+    const leftX = pageLeft(doc);
     const topY = doc.y;
-    const colWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / 2 - 10;
+    const colWidth = contentWidth(doc) / 2 - 10;
 
     const metaLinesLeft = [
       `Role: Business Generalist`,
@@ -117,23 +275,23 @@ export async function generateSessionFeedbackPdfFromContext(
     doc.text(metaLinesLeft.join('\n'), leftX, topY, { width: colWidth });
     doc.text(metaLinesRight.join('\n'), leftX + colWidth + 20, topY, { width: colWidth });
 
-    doc.moveDown(2.5);
+    const lineHeight = doc.currentLineHeight(true) + 2;
+    const metaHeight = Math.max(metaLinesLeft.length, metaLinesRight.length) * lineHeight;
+    doc.y = topY + metaHeight + 14;
+    resetCursor(doc);
 
-    // Performance Breakdown table header
-    doc
-      .fontSize(12)
-      .font(FONT_BOLD)
-      .text('Performance Breakdown (Score out of 5)', { align: 'left' });
+    // Performance Breakdown (aligned to the right, like the template)
+    const tableWidth = 300;
+    const tableX = pageRight(doc) - tableWidth;
+    const tableHeadingY = doc.y;
 
-    doc.moveDown(0.5);
-
-    // Simple table: parameter | score
-    doc.fontSize(10).font(FONT_REGULAR);
-    const tableX = doc.x;
-    let tableY = doc.y;
-    const labelWidth = 260;
-    const valueWidth = 40;
-    const rowHeight = 16;
+    doc.fontSize(12).font(FONT_BOLD).fillColor('#111827');
+    doc.text('Performance Breakdown (Score out of 5)', tableX, tableHeadingY, {
+      width: tableWidth,
+      align: 'left',
+    });
+    doc.y = tableHeadingY + doc.currentLineHeight(true) + 6;
+    resetCursor(doc);
 
     const rows: Array<[string, string]> = [
       ['Scoping Questions', context.ratings.scoping || 'NA'],
@@ -143,35 +301,20 @@ export async function generateSessionFeedbackPdfFromContext(
       ['Overall Score', context.ratings.overall || 'NA'],
     ];
 
-    rows.forEach(([label, value]) => {
-      // Border rectangles
-      doc
-        .rect(tableX, tableY, labelWidth, rowHeight)
-        .strokeColor('#e5e7eb')
-        .stroke();
-      doc
-        .rect(tableX + labelWidth, tableY, valueWidth, rowHeight)
-        .strokeColor('#e5e7eb')
-        .stroke();
-
-      doc
-        .fillColor('#111827')
-        .text(label, tableX + 4, tableY + 3, { width: labelWidth - 8, height: rowHeight });
-      doc
-        .text(value, tableX + labelWidth + 4, tableY + 3, {
-          width: valueWidth - 8,
-          height: rowHeight,
-          align: 'left',
-        });
-
-      tableY += rowHeight;
+    const tableBottomY = drawRatingsTable(doc, {
+      x: tableX,
+      y: doc.y,
+      width: tableWidth,
+      fontRegular: FONT_REGULAR,
+      fontBold: FONT_BOLD,
+      rows,
     });
 
-    doc.moveTo(tableX, tableY).moveDown(1.5);
+    doc.y = tableBottomY + 18;
+    resetCursor(doc);
 
     // Feedback Summary
     doc
-      .moveDown(1.5)
       .fontSize(12)
       .font(FONT_BOLD)
       .fillColor('#111827')
@@ -179,9 +322,10 @@ export async function generateSessionFeedbackPdfFromContext(
 
     doc.moveDown(0.5);
     doc.fontSize(10).font(FONT_REGULAR).fillColor('#111827');
-    doc.text(openAiBody, {
+    doc.text(openAiBody, pageLeft(doc), doc.y, {
+      width: contentWidth(doc),
       align: 'left',
-      lineGap: 2,
+      lineGap: 3,
     });
 
     doc.end();
@@ -216,17 +360,7 @@ export async function generateCandidateWeekSummaryPdf(
     const { regular: FONT_REGULAR, bold: FONT_BOLD } = tryRegisterReportFonts(doc);
 
     // Header
-    doc
-      .fontSize(20)
-      .font(FONT_BOLD)
-      .text('gradnext', { align: 'left' });
-
-    doc
-      .fontSize(18)
-      .font(FONT_BOLD)
-      .text(candidateName || '', { align: 'right' });
-
-    doc.moveDown(0.5);
+    drawTopHeader(doc, 'gradnext', candidateName || '', FONT_BOLD);
 
     doc
       .fontSize(12)
@@ -234,7 +368,8 @@ export async function generateCandidateWeekSummaryPdf(
       .fillColor('#4b5563')
       .text(weekLabel, { align: 'left' });
 
-    doc.moveDown(1.5);
+    doc.moveDown(1);
+    drawDivider(doc);
 
     sessions.forEach((s, idx) => {
       const c = s.context;
@@ -274,12 +409,9 @@ export async function generateCandidateWeekSummaryPdf(
 
       doc.moveDown(2);
 
-      // Ratings table
-      const tableX = doc.x;
-      let tableY = doc.y;
-      const labelWidth = 260;
-      const valueWidth = 40;
-      const rowHeight = 16;
+      // Ratings table (aligned right for consistency)
+      const tableWidth = 300;
+      const tableX = pageRight(doc) - tableWidth;
 
       const rows: Array<[string, string]> = [
         ['Scoping Questions', c.ratings.scoping || 'NA'],
@@ -289,30 +421,17 @@ export async function generateCandidateWeekSummaryPdf(
         ['Overall Score', c.ratings.overall || 'NA'],
       ];
 
-      rows.forEach(([label, value]) => {
-        doc
-          .rect(tableX, tableY, labelWidth, rowHeight)
-          .strokeColor('#e5e7eb')
-          .stroke();
-        doc
-          .rect(tableX + labelWidth, tableY, valueWidth, rowHeight)
-          .strokeColor('#e5e7eb')
-          .stroke();
-
-        doc
-          .fillColor('#111827')
-          .text(label, tableX + 4, tableY + 3, { width: labelWidth - 8, height: rowHeight });
-        doc
-          .text(value, tableX + labelWidth + 4, tableY + 3, {
-            width: valueWidth - 8,
-            height: rowHeight,
-            align: 'left',
-          });
-
-        tableY += rowHeight;
+      const tableBottomY = drawRatingsTable(doc, {
+        x: tableX,
+        y: doc.y,
+        width: tableWidth,
+        fontRegular: FONT_REGULAR,
+        fontBold: FONT_BOLD,
+        rows,
       });
 
-      doc.moveTo(tableX, tableY).moveDown(1.5);
+      doc.y = tableBottomY + 14;
+      resetCursor(doc);
 
       doc
         .moveDown(0.5)
@@ -323,9 +442,10 @@ export async function generateCandidateWeekSummaryPdf(
 
       doc.moveDown(0.5);
       doc.fontSize(10).font(FONT_REGULAR).fillColor('#111827');
-      doc.text(s.summary, {
+      doc.text(s.summary, pageLeft(doc), doc.y, {
+        width: contentWidth(doc),
         align: 'left',
-        lineGap: 2,
+        lineGap: 3,
       });
     });
 
