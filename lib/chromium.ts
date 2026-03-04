@@ -11,7 +11,9 @@ export async function launchBrowser() {
   return puppeteer.launch({
     args: isDev ? [] : chromium.args,
     executablePath: executablePath || undefined,
-    headless: chromium.headless ?? true,
+    // chromium-min is always headless; we just force true to avoid
+    // relying on library-specific typings like chromium.headless.
+    headless: true,
   });
 }
 
