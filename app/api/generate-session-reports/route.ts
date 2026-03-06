@@ -178,17 +178,72 @@ async function markReportsGenerated(
 
   const colLetter = columnIndexToLetter(colIndex);
 
-  // Write "Yes" for each generated row
-  const requests = rowNumbers.map((rowNumber) =>
-    sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'${sheetName.replace(/'/g, "''")}'!${colLetter}${rowNumber}`,
+  const uniqueRowNumbers = Array.from(new Set(rowNumbers)).sort((a, b) => a - b);
+
+  // Write "Yes" in a single batch request (fewer API calls)
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
       valueInputOption: 'RAW',
-      requestBody: { values: [['Yes']] },
-    })
+      data: uniqueRowNumbers.map((rowNumber) => ({
+        range: `'${sheetName.replace(/'/g, "''")}'!${colLetter}${rowNumber}`,
+        values: [['Yes']],
+      })),
+    },
+  });
+}
+
+async function ensureReportGeneratedColumnLetter(
+  spreadsheetId: string,
+  sheetName: string,
+  headerRowNumber: number
+): Promise<string> {
+  const sheets = getSheetsWriteClient();
+  const headerRange = `'${sheetName.replace(/'/g, "''")}'!A${headerRowNumber}:ZZ${headerRowNumber}`;
+  const headerResp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: headerRange,
+  });
+
+  const headerRow = headerResp.data.values?.[0] || [];
+  let colIndex = headerRow.findIndex(
+    (h) => String(h || '').trim().toLowerCase() === 'report generated'
   );
 
-  await Promise.all(requests);
+  if (colIndex === -1) {
+    colIndex = headerRow.length;
+    const colLetter = columnIndexToLetter(colIndex);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName.replace(/'/g, "''")}'!${colLetter}${headerRowNumber}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [['Report Generated']] },
+    });
+    return colLetter;
+  }
+
+  return columnIndexToLetter(colIndex);
+}
+
+async function markReportsGeneratedWithKnownColumn(
+  spreadsheetId: string,
+  sheetName: string,
+  colLetter: string,
+  rowNumbers: number[]
+) {
+  if (!rowNumbers.length) return;
+  const sheets = getSheetsWriteClient();
+  const uniqueRowNumbers = Array.from(new Set(rowNumbers)).sort((a, b) => a - b);
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'RAW',
+      data: uniqueRowNumbers.map((rowNumber) => ({
+        range: `'${sheetName.replace(/'/g, "''")}'!${colLetter}${rowNumber}`,
+        values: [['Yes']],
+      })),
+    },
+  });
 }
 
 type GenerateBody = {
@@ -263,6 +318,61 @@ async function handleGenerate(body: GenerateBody) {
           ? [String(body.candidateName).toLowerCase().trim()]
           : [];
 
+    // Pre-index rows so weekly "all students" doesn't become O(candidates * rows).
+    // We apply the week + mentor filters up-front, then bucket by candidate name.
+    const candidateBuckets = new Map<string, SheetsRow[]>();
+    const prefilteredRows: SheetsRow[] = [];
+
+    for (const row of candidateRows) {
+      const menteeName = getFirstNonEmptyField(row, [
+        'Candidate Name',
+        'Mentee Name',
+        'Student Name',
+        'Full Name',
+        'Name',
+      ]);
+      if (!menteeName) continue;
+      const menteeLower = String(menteeName).toLowerCase().trim();
+      if (!menteeLower) continue;
+
+      const mentorName = getFirstNonEmptyField(row, [
+        'Mentor Name',
+        'mentorName',
+        'Interviewer',
+        'Mentor',
+      ]);
+      if (filterMentorName) {
+        const mentorLower = String(mentorName || '').toLowerCase().trim();
+        if (!mentorLower || mentorLower !== filterMentorName) {
+          continue;
+        }
+      }
+
+      const sessionDateRaw =
+        getFirstNonEmptyField(row, [
+          'Session Date',
+          'Date of Session',
+          'date',
+          'Date',
+          'Timestamp',
+        ]) || getFirstNonEmptyField(row, ['When was the session?', 'Session date and time']);
+      const sessionDateObj = parseSessionDate(sessionDateRaw || '');
+
+      if (filterWeekNumber !== undefined) {
+        if (!sessionDateObj) continue;
+        const thisWeekNumber = computeProgramWeekNumber(earliestSessionDateObj, sessionDateObj);
+        if (thisWeekNumber !== filterWeekNumber) continue;
+      }
+
+      prefilteredRows.push(row);
+      const arr = candidateBuckets.get(menteeLower);
+      if (arr) {
+        arr.push(row);
+      } else {
+        candidateBuckets.set(menteeLower, [row]);
+      }
+    }
+
     // Convenience: for weekly generation, allow caller to avoid sending a huge candidateNames array.
     // When enabled, we derive all distinct candidate names for that week from the feedback rows.
     if (
@@ -270,36 +380,7 @@ async function handleGenerate(body: GenerateBody) {
       body.allCandidatesForWeek &&
       filterWeekNumber !== undefined
     ) {
-      const names = new Set<string>();
-      for (const row of candidateRows) {
-        const menteeName = getFirstNonEmptyField(row, [
-          'Candidate Name',
-          'Mentee Name',
-          'Student Name',
-          'Full Name',
-          'Name',
-        ]);
-        if (!menteeName) continue;
-
-        const sessionDateRaw =
-          getFirstNonEmptyField(row, [
-            'Session Date',
-            'Date of Session',
-            'date',
-            'Date',
-            'Timestamp',
-          ]) ||
-          getFirstNonEmptyField(row, ['When was the session?', 'Session date and time']) ||
-          '';
-
-        const sessionDateObj = parseSessionDate(sessionDateRaw);
-        if (!sessionDateObj) continue;
-        const weekNumber = computeProgramWeekNumber(earliestSessionDateObj, sessionDateObj);
-        if (weekNumber !== filterWeekNumber) continue;
-
-        names.add(String(menteeName).toLowerCase().trim());
-      }
-      candidateNamesToProcess = Array.from(names);
+      candidateNamesToProcess = Array.from(candidateBuckets.keys());
     }
 
     const candidatesToProcess: (string | undefined)[] =
@@ -313,11 +394,43 @@ async function handleGenerate(body: GenerateBody) {
     const reportRowNumbers: number[] = [];
     let reportHeaderRowNumber: number | null = null;
     const logLines: string[] = [];
+    const pendingMarkRowNumbers: number[] = [];
+    let reportGeneratedColLetter: string | null = null;
 
     const log = (msg: string) => {
       logLines.push(msg);
       // eslint-disable-next-line no-console
       console.log(`[generate-reports] ${msg}`);
+    };
+
+    const flushMarksIfNeeded = async (force?: boolean) => {
+      if (dryRun) return;
+      if (!feedbacksSpreadsheetId) return;
+      if (!reportHeaderRowNumber) return;
+      if (!pendingMarkRowNumbers.length) return;
+      if (!force && pendingMarkRowNumbers.length < 10) return;
+
+      try {
+        if (!reportGeneratedColLetter) {
+          reportGeneratedColLetter = await ensureReportGeneratedColumnLetter(
+            feedbacksSpreadsheetId,
+            'Candidate feedback form filled by mentors',
+            reportHeaderRowNumber
+          );
+        }
+        const toFlush = pendingMarkRowNumbers.splice(0, pendingMarkRowNumbers.length);
+        await markReportsGeneratedWithKnownColumn(
+          feedbacksSpreadsheetId,
+          'Candidate feedback form filled by mentors',
+          reportGeneratedColLetter,
+          toFlush
+        );
+        log(`  Marked Report Generated=Yes for ${toFlush.length} row(s)`);
+      } catch (err: any) {
+        // Do not fail the main request if marking fails
+        // eslint-disable-next-line no-console
+        console.warn('Failed to mark reports as generated in sheet:', err);
+      }
     };
 
     log(
@@ -334,7 +447,10 @@ async function handleGenerate(body: GenerateBody) {
         `--- Processing: ${filterCandidateName ?? '(all)'} (week ${filterWeekNumber ?? 'all'}) ---`
       );
 
-    for (const row of candidateRows) {
+      const rowsToScan: SheetsRow[] =
+        filterCandidateName ? candidateBuckets.get(filterCandidateName) || [] : prefilteredRows;
+
+    for (const row of rowsToScan) {
       if (limit && created >= limit) {
         break;
       }
@@ -392,13 +508,6 @@ async function handleGenerate(body: GenerateBody) {
       const sessionDateObj = parseSessionDate(sessionDateRaw || '');
 
       // Apply filters first so we only consider rows for the current candidate
-      if (filterMentorName) {
-        const mentorNameLower = (mentorName || '').toLowerCase().trim();
-        if (!mentorNameLower || mentorNameLower !== filterMentorName) {
-          continue;
-        }
-      }
-
       if (filterCandidateName) {
         const candidateLower = (menteeName || '').toLowerCase().trim();
         if (!candidateLower || candidateLower !== filterCandidateName) {
@@ -425,16 +534,6 @@ async function handleGenerate(body: GenerateBody) {
           bodyDate.getDate() === rowDate.getDate();
 
         if (!sameDay) {
-          continue;
-        }
-      }
-
-      if (filterWeekNumber !== undefined) {
-        if (!sessionDateObj) {
-          continue;
-        }
-        const thisWeekNumber = computeProgramWeekNumber(earliestSessionDateObj, sessionDateObj);
-        if (thisWeekNumber !== filterWeekNumber) {
           continue;
         }
       }
@@ -575,6 +674,7 @@ async function handleGenerate(body: GenerateBody) {
             if (reportHeaderRowNumber == null) {
               reportHeaderRowNumber = headerRowNumber;
             }
+            pendingMarkRowNumbers.push(rowNumber);
           }
 
           // Collect for candidate+week summary if requested
@@ -595,6 +695,7 @@ async function handleGenerate(body: GenerateBody) {
         created++;
         candidateCreated++;
         generatedSessionsKeys.push(sessionKey);
+        await flushMarksIfNeeded(false);
       } catch (error: any) {
         const errMsg = error?.message || 'Unknown error';
         log(`    Error: ${menteeName} | ${sessionDateRaw} | ${errMsg}`);
@@ -666,20 +767,7 @@ async function handleGenerate(body: GenerateBody) {
     }
 
     // Mark generated rows in the "Candidate feedback form filled by mentors" sheet
-    if (!dryRun && reportRowNumbers.length && reportHeaderRowNumber && feedbacksSpreadsheetId) {
-      try {
-        await markReportsGenerated(
-          feedbacksSpreadsheetId,
-          'Candidate feedback form filled by mentors',
-          reportHeaderRowNumber,
-          Array.from(new Set(reportRowNumbers))
-        );
-      } catch (err) {
-        // Do not fail the main request if marking fails
-        // eslint-disable-next-line no-console
-        console.warn('Failed to mark reports as generated in sheet:', err);
-      }
-    }
+    await flushMarksIfNeeded(true);
 
     return NextResponse.json(
       {
