@@ -197,6 +197,7 @@ type GenerateBody = {
   mentorName?: string;
   candidateName?: string;
   candidateNames?: string[];
+  allCandidatesForWeek?: boolean;
   sessionDate?: string;
   weekNumber?: number;
 };
@@ -255,12 +256,51 @@ async function handleGenerate(body: GenerateBody) {
         ? body.weekNumber
         : undefined;
 
-    const candidateNamesToProcess: string[] =
+    let candidateNamesToProcess: string[] =
       Array.isArray(body.candidateNames) && body.candidateNames.length > 0
         ? body.candidateNames.map((c) => String(c || '').toLowerCase().trim()).filter(Boolean)
         : body.candidateName
-        ? [String(body.candidateName).toLowerCase().trim()]
-        : [];
+          ? [String(body.candidateName).toLowerCase().trim()]
+          : [];
+
+    // Convenience: for weekly generation, allow caller to avoid sending a huge candidateNames array.
+    // When enabled, we derive all distinct candidate names for that week from the feedback rows.
+    if (
+      candidateNamesToProcess.length === 0 &&
+      body.allCandidatesForWeek &&
+      filterWeekNumber !== undefined
+    ) {
+      const names = new Set<string>();
+      for (const row of candidateRows) {
+        const menteeName = getFirstNonEmptyField(row, [
+          'Candidate Name',
+          'Mentee Name',
+          'Student Name',
+          'Full Name',
+          'Name',
+        ]);
+        if (!menteeName) continue;
+
+        const sessionDateRaw =
+          getFirstNonEmptyField(row, [
+            'Session Date',
+            'Date of Session',
+            'date',
+            'Date',
+            'Timestamp',
+          ]) ||
+          getFirstNonEmptyField(row, ['When was the session?', 'Session date and time']) ||
+          '';
+
+        const sessionDateObj = parseSessionDate(sessionDateRaw);
+        if (!sessionDateObj) continue;
+        const weekNumber = computeProgramWeekNumber(earliestSessionDateObj, sessionDateObj);
+        if (weekNumber !== filterWeekNumber) continue;
+
+        names.add(String(menteeName).toLowerCase().trim());
+      }
+      candidateNamesToProcess = Array.from(names);
+    }
 
     const candidatesToProcess: (string | undefined)[] =
       candidateNamesToProcess.length > 0 ? candidateNamesToProcess : [undefined];

@@ -148,12 +148,28 @@ export default function WeekwiseSessions() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          candidateNames: candidatesToRun,
           weekNumber,
+          ...(isAllStudentsForWeek
+            ? { allCandidatesForWeek: true }
+            : { candidateNames: candidatesToRun }),
           dryRun: false,
         }),
       });
-      const result = await response.json();
+      let result: any = null;
+      try {
+        result = await response.json();
+      } catch {
+        const text = await response.text().catch(() => '');
+        const statusLine = `HTTP ${response.status} ${response.statusText}`.trim();
+        setReportLog(prev => [
+          ...prev,
+          `ERROR: Non-JSON response from generate API (${statusLine}).`,
+          text ? `Response (first 500 chars): ${text.slice(0, 500)}` : '',
+        ]);
+        setLastReportSummary('Failed to generate reports.');
+        setLastReportErrors([`Non-JSON response from server (${statusLine}).`]);
+        return;
+      }
 
       const apiLog: string[] = Array.isArray(result.log) ? result.log : [];
       setReportLog(prev => [...prev, ...apiLog]);
