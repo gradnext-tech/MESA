@@ -660,7 +660,7 @@ async function handleGenerate(body: GenerateBody) {
 
           // Weekly mode: generate ONE concatenated PDF per student/week instead of individual PDFs.
           if (filterWeekNumber !== undefined) {
-            const openAiBody = await generateReportBodyWithOpenAI({ ...context, ratings });
+            const openAiBody = await generateReportBodyWithOpenAI(context);
             candidateConcatSessions.push({
               context: { ...context, ratings },
               openAiBody,
