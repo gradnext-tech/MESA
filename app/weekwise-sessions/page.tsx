@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileCheck2,
+  Mail,
 } from 'lucide-react';
 import { startOfWeek, endOfWeek, format, eachWeekOfInterval, min, max, isWithinInterval, startOfDay, differenceInCalendarWeeks } from 'date-fns';
 import Link from 'next/link';
@@ -37,10 +38,12 @@ interface WeekwiseStats {
 }
 
 export default function WeekwiseSessions() {
-  const { sessions, hasData, setSessions, setStudents } = useData();
+  const { sessions, hasData, setSessions, setStudents, candidateFeedbacks, setCandidateFeedbacks } = useData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isGeneratingReports, setIsGeneratingReports] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+  const [sendingSessionKey, setSendingSessionKey] = useState<string | null>(null);
   const [selectedReportCandidates, setSelectedReportCandidates] = useState<string[]>([]);
   const [selectedReportWeekStart, setSelectedReportWeekStart] = useState<Date | null>(null);
   const [isAllStudentsForWeek, setIsAllStudentsForWeek] = useState(false);
@@ -77,6 +80,7 @@ export default function WeekwiseSessions() {
         const parsedStudents = parseStudentData(result.data.students || result.data.mentees || []);
         setSessions(parsedSessions);
         setStudents(parsedStudents);
+        setCandidateFeedbacks(result.data.candidateFeedbacks || []);
       }
     } catch (error) {
       // Silent error handling
@@ -430,16 +434,36 @@ export default function WeekwiseSessions() {
     return 'Not Filled';
   };
 
+  // Read "Report Generated" / "Report Sent" from feedback sheet (Candidate feedback form filled by mentors)
+  const getReportStatusFromSheet = (session: any): { reportGenerated: boolean; reportSent: boolean } => {
+    if (!candidateFeedbacks || candidateFeedbacks.length === 0) {
+      return { reportGenerated: false, reportSent: false };
+    }
+    const sessionDate = parseSessionDate(session.date || session['Session Date'] || session['Date of Session'] || '');
+    const studentName = String(session.studentName || '').trim().toLowerCase();
+    const mentorName = String(session.mentorName || '').trim().toLowerCase();
+    for (const row of candidateFeedbacks) {
+      const rowName = String(row['Candidate Name'] || row['Mentee Name'] || row['Student Name'] || row['Name'] || '').trim().toLowerCase();
+      const rowMentor = String(row['Mentor Name'] || row['Interviewer'] || row['Mentor'] || '').trim().toLowerCase();
+      const rowDateRaw = row['Session Date'] || row['Date of Session'] || row['date'] || row['Date'] || row['Timestamp'] || '';
+      const rowDate = parseSessionDate(rowDateRaw);
+      if (!rowDate || !sessionDate) continue;
+      const sameDay = rowDate.getFullYear() === sessionDate.getFullYear() && rowDate.getMonth() === sessionDate.getMonth() && rowDate.getDate() === sessionDate.getDate();
+      if (rowName !== studentName || rowMentor !== mentorName || !sameDay) continue;
+      const genRaw = String(row['is report generated'] ?? row['Report Generated'] ?? row['report generated'] ?? '').trim().toLowerCase();
+      const sentRaw = String(row['Report Sent'] ?? row['report sent'] ?? '').trim().toLowerCase();
+      const reportGenerated = ['yes', 'true', 'done', 'generated'].includes(genRaw);
+      const reportSent = ['yes', 'true', 'sent'].includes(sentRaw);
+      return { reportGenerated, reportSent };
+    }
+    return { reportGenerated: false, reportSent: false };
+  };
+
   const isFeedbackGeneratedForSession = (session: any): boolean => {
-    const rawDate =
-      session.date ||
-      session.Date ||
-      session['Session Date'] ||
-      session['Date of Session'] ||
-      '';
-    const key = `${String(session.studentName || '').trim()}|${String(
-      session.mentorName || ''
-    ).trim()}|${String(rawDate)}`;
+    const fromSheet = getReportStatusFromSheet(session);
+    if (fromSheet.reportGenerated) return true;
+    const rawDate = session.date || session['Session Date'] || session['Date of Session'] || '';
+    const key = `${String(session.studentName || '').trim()}|${String(session.mentorName || '').trim()}|${String(rawDate)}`;
     return generatedSessionKeys.includes(key);
   };
 
@@ -772,6 +796,111 @@ export default function WeekwiseSessions() {
         </div>
       )}
 
+      {/* Send reports modal: only sessions where report is generated (from sheet) */}
+      {isSendModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900/70 via-slate-900/40 to-emerald-900/60 backdrop-blur-sm">
+          <div className="bg-[#102525] border border-[#3A5A5A] rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+            <h2 className="text-xl font-semibold text-white mb-2">Send reports to students</h2>
+            <p className="text-xs text-gray-300 mb-4">
+              Only sessions with a generated report (from sheet) are listed. Send manually per session.
+            </p>
+            <div className="overflow-y-auto flex-1 min-h-0 rounded-lg border border-[#3A5A5A] bg-[#173232]">
+              {(() => {
+                const withReport = filteredSessions.filter((s) => getReportStatusFromSheet(s).reportGenerated);
+                if (withReport.length === 0) {
+                  return (
+                    <p className="p-4 text-sm text-gray-400">
+                      No sessions with report generated (from sheet). Generate reports first, then refresh.
+                    </p>
+                  );
+                }
+                return (
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-[#1A3636] border-b border-[#3A5A5A]">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs text-gray-300">Student</th>
+                        <th className="px-3 py-2 text-left text-xs text-gray-300">Date</th>
+                        <th className="px-3 py-2 text-left text-xs text-gray-300">Mentor</th>
+                        <th className="px-3 py-2 text-right text-xs text-gray-300">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {withReport.map((session, idx) => {
+                        const { reportSent } = getReportStatusFromSheet(session);
+                        const sessionKey = `${session.studentName}|${session.mentorName}|${session.date}`;
+                        const isSending = sendingSessionKey === sessionKey;
+                        return (
+                          <tr key={`${sessionKey}-${idx}`} className="border-b border-[#3A5A5A]">
+                            <td className="px-3 py-2 text-white">{session.studentName || '—'}</td>
+                            <td className="px-3 py-2 text-gray-300">
+                              {session.date ? format(parseSessionDate(session.date) || new Date(), 'MMM d, yyyy') : session.date}
+                            </td>
+                            <td className="px-3 py-2 text-gray-300">{session.mentorName || '—'}</td>
+                            <td className="px-3 py-2 text-right">
+                              {reportSent ? (
+                                <span className="text-xs text-gray-400">Sent</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={isSending || !session.studentEmail}
+                                  onClick={async () => {
+                                    if (!session.studentEmail || !session.studentName || !session.date) return;
+                                    setSendingSessionKey(sessionKey);
+                                    setLastReportSummary(null);
+                                    setLastReportErrors([]);
+                                    try {
+                                      const response = await fetch(getApiUrl('api/send-session-report-email'), {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          menteeEmail: session.studentEmail,
+                                          menteeName: session.studentName,
+                                          mentorName: session.mentorName,
+                                          sessionDate: session.date,
+                                        }),
+                                      });
+                                      const result = await response.json();
+                                      if (response.ok && result.success) {
+                                        setLastReportSummary(result.message || 'Report email sent.');
+                                        await handleRefresh();
+                                      } else {
+                                        setLastReportSummary('Failed to send report email.');
+                                        setLastReportErrors([result?.error || result?.details || 'Unknown error']);
+                                      }
+                                    } catch (e: any) {
+                                      setLastReportSummary('Failed to send report email.');
+                                      setLastReportErrors([e?.message || String(e)]);
+                                    } finally {
+                                      setSendingSessionKey(null);
+                                    }
+                                  }}
+                                  className="px-3 py-1 rounded-lg text-xs font-medium bg-[#F59E0B] hover:bg-[#D97706] text-white disabled:opacity-50"
+                                >
+                                  {isSending ? 'Sending...' : 'Send'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </div>
+            <div className="flex justify-end pt-4 mt-4 border-t border-[#3A5A5A]">
+              <button
+                type="button"
+                onClick={() => setIsSendModalOpen(false)}
+                className="px-4 py-2 text-sm rounded-lg bg-[#1a3434] text-gray-300 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -788,6 +917,14 @@ export default function WeekwiseSessions() {
           >
             <FileCheck2 className={`w-4 h-4 ${isGeneratingReports ? 'animate-pulse' : ''}`} />
             {isGeneratingReports ? 'Generating Reports...' : 'Generate Reports'}
+          </button>
+          <button
+            onClick={() => setIsSendModalOpen(true)}
+            disabled={isGeneratingReports}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed bg-[#F59E0B] hover:bg-[#D97706] text-white shadow-sm border border-transparent"
+          >
+            <Mail className="w-4 h-4" />
+            Send reports
           </button>
           <button
             onClick={handleRefresh}
@@ -1101,12 +1238,15 @@ export default function WeekwiseSessions() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Feedback Generated
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Report Email
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ backgroundColor: '#2A4A4A' }}>
                 {filteredSessions.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-400">
                       {selectedWeek ? 'No sessions found for the selected week' : 'No session data available'}
                     </td>
                   </tr>
@@ -1206,6 +1346,61 @@ export default function WeekwiseSessions() {
                                 Not Generated
                               </span>
                             )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {(() => {
+                              const { reportGenerated: fromSheet, reportSent: sentFromSheet } = getReportStatusFromSheet(session);
+                              const canSend = fromSheet && session.studentEmail && !isGeneratingReports;
+                              if (sentFromSheet) {
+                                return (
+                                  <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full text-white" style={{ backgroundColor: '#6B7280' }}>
+                                    Sent
+                                  </span>
+                                );
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={!canSend}
+                                  onClick={async () => {
+                                    if (!session.studentEmail || !session.studentName || !session.date) return;
+                                    setIsGeneratingReports(true);
+                                    setLastReportSummary(null);
+                                    setLastReportErrors([]);
+                                    try {
+                                      const response = await fetch(getApiUrl('api/send-session-report-email'), {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          menteeEmail: session.studentEmail,
+                                          menteeName: session.studentName,
+                                          mentorName: session.mentorName,
+                                          sessionDate: session.date,
+                                        }),
+                                      });
+                                      const result = await response.json();
+                                      if (response.ok && result.success) {
+                                        setLastReportSummary(result.message || 'Report email sent.');
+                                        await handleRefresh();
+                                      } else {
+                                        setLastReportSummary('Failed to send report email.');
+                                        if (result?.error || result?.details) {
+                                          setLastReportErrors([result.error || result.details || 'Unknown error sending email']);
+                                        }
+                                      }
+                                    } catch (e: any) {
+                                      setLastReportSummary('Failed to send report email.');
+                                      setLastReportErrors([e?.message || String(e || 'unknown')]);
+                                    } finally {
+                                      setIsGeneratingReports(false);
+                                    }
+                                  }}
+                                  className="px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full border border-[#3A5A5A] text-gray-100 bg-[#F59E0B] hover:bg-[#D97706] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  Send
+                                </button>
+                              );
+                            })()}
                           </td>
                         </tr>
                       );

@@ -191,21 +191,17 @@ async function markReportsGenerated(
   await Promise.all(requests);
 }
 
-export async function POST(request: NextRequest) {
-  if (!isAuthenticated(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+type GenerateBody = {
+  limit?: number;
+  dryRun?: boolean;
+  mentorName?: string;
+  candidateName?: string;
+  sessionDate?: string;
+  weekNumber?: number;
+};
 
+async function handleGenerate(body: GenerateBody) {
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      limit?: number;
-      dryRun?: boolean;
-      mentorName?: string;
-      candidateName?: string;
-      sessionDate?: string;
-      weekNumber?: number;
-    };
-
     const sessionsSpreadsheetId = process.env.GOOGLE_SPREADSHEET_ID?.trim();
     const feedbacksSpreadsheetId = process.env.GOOGLE_FEEDBACKS_SPREADSHEET_ID?.trim();
 
@@ -283,9 +279,6 @@ export async function POST(request: NextRequest) {
         'Name',
       ]);
 
-      // Fallback: any "name" column that is not clearly mentor-related
-      // No additional fallback needed beyond generic "name" keys
-
       let mentorName = getFirstNonEmptyField(row, [
         'Mentor Name',
         'mentorName',
@@ -328,8 +321,27 @@ export async function POST(request: NextRequest) {
 
       const sessionDateObj = parseSessionDate(sessionDateRaw || '');
 
+      // Skip if report is already marked as generated in the sheet
+      const reportGeneratedRaw =
+        getFirstNonEmptyField(row, [
+          'is report generated',
+          'Report Generated',
+          'report generated',
+          'Is Report Generated',
+        ]) || '';
+      const reportGeneratedNormalized = reportGeneratedRaw.trim().toLowerCase();
+      const isAlreadyGenerated =
+        reportGeneratedNormalized === 'yes' ||
+        reportGeneratedNormalized === 'true' ||
+        reportGeneratedNormalized === 'done' ||
+        reportGeneratedNormalized === 'generated';
+      if (isAlreadyGenerated) {
+        skipped++;
+        skipReasons.alreadyGenerated = (skipReasons.alreadyGenerated || 0) + 1;
+        continue;
+      }
+
       // Raw feedback: explicitly take column K (11th column, index 10) as requested
-      // googleSheets util always adds index-based keys: _col0, _col1, ...
       let rawFeedback = '';
       if (row['_col10'] !== undefined && row['_col10'] !== null) {
         rawFeedback = String(row['_col10']).trim();
@@ -405,7 +417,6 @@ export async function POST(request: NextRequest) {
         mentorName = 'Mentor';
       }
       if (!sessionDateRaw) {
-        // Fallback to earliest session date if we truly can't find a date
         sessionDateRaw = earliestSessionDateRaw;
         skipReasons.missingDateUsedEarliest =
           (skipReasons.missingDateUsedEarliest || 0) + 1;
@@ -599,5 +610,128 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function POST(request: NextRequest) {
+  if (!isAuthenticated(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const body = (await request.json().catch(() => ({}))) as GenerateBody;
+  return handleGenerate(body);
+}
+
+/**
+ * Find the next (student, week) batch for backfill: one student's sessions in one week,
+ * ordered from the start (earliest weeks first). Only includes rows where Report Generated
+ * is not yet Yes. Processes one batch per cron run to keep API costs and error risk low.
+ */
+async function getNextBackfillBatch(): Promise<{ candidateName: string; weekNumber: number } | null> {
+  const sessionsSpreadsheetId = process.env.GOOGLE_SPREADSHEET_ID?.trim();
+  const feedbacksSpreadsheetId = process.env.GOOGLE_FEEDBACKS_SPREADSHEET_ID?.trim();
+  if (!sessionsSpreadsheetId || !feedbacksSpreadsheetId) return null;
+
+  const { sessions, candidateFeedbacks } = await fetchAllSheets(
+    sessionsSpreadsheetId,
+    feedbacksSpreadsheetId
+  );
+  const candidateRows: SheetsRow[] = Array.isArray(candidateFeedbacks) ? candidateFeedbacks : [];
+  const sessionRows: SheetsRow[] = Array.isArray(sessions) ? sessions : [];
+
+  const earliestSessionDateRaw = getEarliestSessionDateRaw(sessionRows);
+  const earliestSessionDateObj = parseSessionDate(earliestSessionDateRaw) || new Date();
+
+  const pendingBatches = new Map<string, number>(); // key: "menteeName|weekNumber", value: weekNumber (for sorting)
+
+  for (const row of candidateRows) {
+    const reportGeneratedRaw =
+      getFirstNonEmptyField(row, [
+        'is report generated',
+        'Report Generated',
+        'report generated',
+        'Is Report Generated',
+      ]) || '';
+    const reportGeneratedNormalized = reportGeneratedRaw.trim().toLowerCase();
+    const isAlreadyGenerated = ['yes', 'true', 'done', 'generated'].includes(reportGeneratedNormalized);
+    if (isAlreadyGenerated) continue;
+
+    const rawFeedback =
+      row['_col10'] !== undefined && row['_col10'] !== null ? String(row['_col10']).trim() : '';
+    if (!rawFeedback) continue;
+
+    const menteeName = getFirstNonEmptyField(row, [
+      'Candidate Name',
+      'Mentee Name',
+      'Student Name',
+      'Full Name',
+      'Name',
+    ]);
+    if (!menteeName) continue;
+
+    const sessionDateRaw =
+      getFirstNonEmptyField(row, [
+        'Session Date',
+        'Date of Session',
+        'date',
+        'Date',
+        'Timestamp',
+      ]) || getFirstNonEmptyField(row, ['When was the session?', 'Session date and time']);
+    const sessionDateObj = parseSessionDate(sessionDateRaw || '');
+    if (!sessionDateObj) continue;
+
+    const weekNumber = computeProgramWeekNumber(earliestSessionDateObj, sessionDateObj);
+    const key = `${menteeName}|${weekNumber}`;
+    if (!pendingBatches.has(key)) {
+      pendingBatches.set(key, weekNumber);
+    }
+  }
+
+  if (pendingBatches.size === 0) return null;
+
+  // Sort by weekNumber ascending, then by student name (process from start)
+  const sorted = Array.from(pendingBatches.entries())
+    .sort((a, b) => {
+      const [keyA, weekA] = a;
+      const [keyB, weekB] = b;
+      if (weekA !== weekB) return weekA - weekB;
+      return keyA.localeCompare(keyB);
+    });
+
+  const [firstKey, weekNumber] = sorted[0];
+  const candidateName = firstKey.split('|')[0];
+  return { candidateName, weekNumber };
+}
+
+export async function GET(request: NextRequest) {
+  if (!isAuthenticated(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const mode = url.searchParams.get('mode') || 'daily';
+
+  const today = new Date();
+  const isoDate = today.toISOString().slice(0, 10); // yyyy-MM-dd
+
+  let body: GenerateBody;
+  if (mode === 'backfill') {
+    const batch = await getNextBackfillBatch();
+    if (!batch) {
+      return NextResponse.json(
+        {
+          success: true,
+          created: 0,
+          skipped: 0,
+          message: 'No pending backfill batches. All reports are generated.',
+        },
+        { status: 200 }
+      );
+    }
+    body = { candidateName: batch.candidateName, weekNumber: batch.weekNumber };
+  } else {
+    body = { sessionDate: isoDate };
+  }
+
+  return handleGenerate(body);
 }
 

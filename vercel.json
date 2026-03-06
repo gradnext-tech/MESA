@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/mesadashboard/api/generate-session-reports",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/mesadashboard/api/generate-session-reports?mode=backfill",
+      "schedule": "30 18 * * *"
+    }
+  ]
+}
+
