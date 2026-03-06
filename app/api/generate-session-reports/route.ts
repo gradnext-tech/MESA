@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllSheets } from '@/lib/googleSheets';
+import { fetchAllSheets, fetchSheetData } from '@/lib/googleSheets';
 import {
   MentorSessionFeedbackContext,
   ensureWeekFolderForSession,
@@ -233,6 +233,40 @@ async function markReportsGeneratedWithKnownColumn(
   });
 }
 
+const CORPORATE_TRACKER_SPREADSHEET_ID = '1nhceEQCKYw3G_1MdwH4eq2xNaXo-QpBgkxZjvjY_TCc';
+const CORPORATE_TRACKER_COLUMN_X = 'X'; // Report generated
+const CORPORATE_TRACKER_COLUMN_Y = 'Y'; // Report sent
+
+function buildSessionMatchKey(menteeName: string, sessionDateRaw: string): string {
+  const name = (menteeName || '').toLowerCase().trim();
+  const parsed = parseSessionDate(sessionDateRaw || '');
+  const dateStr = parsed ? format(parsed, 'yyyy-MM-dd') : String(sessionDateRaw || '').trim();
+  return `${name}|${dateStr}`;
+}
+
+async function markCorporateTrackerColumn(
+  spreadsheetId: string,
+  sheetName: string,
+  rowNumbers: number[],
+  colLetter: string,
+  value: string
+) {
+  if (!rowNumbers.length) return;
+  const sheets = getSheetsWriteClient();
+  const escaped = sheetName.replace(/'/g, "''");
+  const rangePrefix = escaped.includes(' ') || escaped.includes("'") ? `'${escaped}'` : escaped;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'RAW',
+      data: rowNumbers.map((rowNumber) => ({
+        range: `${rangePrefix}!${colLetter}${rowNumber}`,
+        values: [[value]],
+      })),
+    },
+  });
+}
+
 type GenerateBody = {
   limit?: number;
   dryRun?: boolean;
@@ -381,7 +415,7 @@ async function handleGenerate(body: GenerateBody) {
     const reportRowNumbers: number[] = [];
     let reportHeaderRowNumber: number | null = null;
     const logLines: string[] = [];
-    const pendingMarkRowNumbers: number[] = [];
+    const pendingMarks: Array<{ rowNumber: number; menteeName: string; sessionDateRaw: string }> = [];
     let reportGeneratedColLetter: string | null = null;
 
     const log = (msg: string) => {
@@ -390,12 +424,19 @@ async function handleGenerate(body: GenerateBody) {
       console.log(`[generate-reports] ${msg}`);
     };
 
+    const corporateTrackerSpreadsheetId = (
+      process.env.GOOGLE_CORPORATE_TRACKER_SPREADSHEET_ID || CORPORATE_TRACKER_SPREADSHEET_ID
+    ).trim();
+    const corporateTrackerSheetName = (
+      process.env.GOOGLE_CORPORATE_TRACKER_SHEET_NAME || 'Sheet1'
+    ).trim();
+
     const flushMarksIfNeeded = async (force?: boolean) => {
       if (dryRun) return;
       if (!feedbacksSpreadsheetId) return;
       if (!reportHeaderRowNumber) return;
-      if (!pendingMarkRowNumbers.length) return;
-      if (!force && pendingMarkRowNumbers.length < 10) return;
+      if (!pendingMarks.length) return;
+      if (!force && pendingMarks.length < 10) return;
 
       try {
         if (!reportGeneratedColLetter) {
@@ -405,14 +446,65 @@ async function handleGenerate(body: GenerateBody) {
             reportHeaderRowNumber
           );
         }
-        const toFlush = pendingMarkRowNumbers.splice(0, pendingMarkRowNumbers.length);
+        const toFlush = pendingMarks.splice(0, pendingMarks.length);
+        const rowNumbers = toFlush.map((m) => m.rowNumber);
         await markReportsGeneratedWithKnownColumn(
           feedbacksSpreadsheetId,
           'Candidate feedback form filled by mentors',
           reportGeneratedColLetter,
-          toFlush
+          rowNumbers
         );
-        log(`  Marked Report Generated=Yes for ${toFlush.length} row(s)`);
+        log(`  Marked Report Generated=Yes for ${rowNumbers.length} row(s)`);
+
+        if (corporateTrackerSpreadsheetId) {
+          try {
+            const corporateRows = await fetchSheetData(
+              corporateTrackerSpreadsheetId,
+              corporateTrackerSheetName
+            );
+            const keyToRowNumber = new Map<string, number>();
+            for (const r of corporateRows as SheetsRow[]) {
+              const name = getFirstNonEmptyField(r, [
+                'Candidate Name',
+                'Mentee Name',
+                'Student Name',
+                'Full Name',
+                'Name',
+              ]);
+              const dateRaw = getFirstNonEmptyField(r, [
+                'Session Date',
+                'Date of Session',
+                'date',
+                'Date',
+                'Timestamp',
+              ]);
+              if (name || dateRaw) {
+                const key = buildSessionMatchKey(name, dateRaw);
+                const rowNum = typeof r._rowNumber === 'number' ? r._rowNumber : 0;
+                if (rowNum) keyToRowNumber.set(key, rowNum);
+              }
+            }
+            const corporateRowNumbers: number[] = [];
+            for (const m of toFlush) {
+              const key = buildSessionMatchKey(m.menteeName, m.sessionDateRaw);
+              const corpRow = keyToRowNumber.get(key);
+              if (corpRow) corporateRowNumbers.push(corpRow);
+            }
+            if (corporateRowNumbers.length) {
+              await markCorporateTrackerColumn(
+                corporateTrackerSpreadsheetId,
+                corporateTrackerSheetName,
+                Array.from(new Set(corporateRowNumbers)),
+                CORPORATE_TRACKER_COLUMN_X,
+                'Yes'
+              );
+              log(`  Marked corporate tracker (column X) for ${corporateRowNumbers.length} row(s)`);
+            }
+          } catch (err: any) {
+            // eslint-disable-next-line no-console
+            console.warn('Failed to mark corporate tracker Report Generated:', err);
+          }
+        }
       } catch (err: any) {
         // Do not fail the main request if marking fails
         // eslint-disable-next-line no-console
@@ -693,7 +785,11 @@ async function handleGenerate(body: GenerateBody) {
             log(`    Created: ${filename}`);
 
             if (rowNumber) {
-              pendingMarkRowNumbers.push(rowNumber);
+              pendingMarks.push({
+                rowNumber,
+                menteeName: menteeName || '',
+                sessionDateRaw: sessionDateRaw || '',
+              });
             }
             created++;
             candidateCreated++;
@@ -757,7 +853,13 @@ async function handleGenerate(body: GenerateBody) {
           candidateCreated += 1;
           log(`  Created (concatenated): ${concatenatedFilename}`);
 
-          pendingMarkRowNumbers.push(...candidateConcatRowNumbers);
+          for (let i = 0; i < candidateConcatRowNumbers.length; i++) {
+            pendingMarks.push({
+              rowNumber: candidateConcatRowNumbers[i],
+              menteeName: candidateConcatSessions[i].context.menteeName || '',
+              sessionDateRaw: candidateConcatSessions[i].context.sessionDateRaw || '',
+            });
+          }
           await flushMarksIfNeeded(true);
         } catch (err: any) {
           const errMsg = err?.message || 'Failed to generate concatenated weekly report';
