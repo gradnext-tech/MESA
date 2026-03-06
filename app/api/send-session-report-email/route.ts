@@ -73,29 +73,6 @@ async function markCorporateTrackerReportSent(
   });
 }
 
-function getSheetsWriteClient() {
-  const credentialsString = process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
-  if (!credentialsString) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_CREDENTIALS environment variable not found');
-  }
-
-  let credentials: any;
-  try {
-    credentials = JSON.parse(credentialsString);
-  } catch {
-    throw new Error(
-      "Invalid JSON in GOOGLE_SERVICE_ACCOUNT_CREDENTIALS. Make sure it's a valid JSON string."
-    );
-  }
-
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-
-  return google.sheets({ version: 'v4', auth });
-}
-
 function columnIndexToLetter(index: number): string {
   let result = '';
   let i = index;
