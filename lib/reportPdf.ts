@@ -224,6 +224,119 @@ function drawRatingsTable(
   return cursorY;
 }
 
+function drawSessionFeedbackReportPage(
+  doc: PDFKit.PDFDocument,
+  opts: {
+    context: MentorSessionFeedbackContext & {
+      ratings: {
+        scoping: string;
+        structure: string;
+        communication: string;
+        businessAcumen: string;
+        overall: string;
+      };
+    };
+    openAiBody: string;
+    fontRegular: string;
+    fontBold: string;
+    headerSubtitleLines?: string[];
+    pageTitle?: string;
+  }
+) {
+  const { context, openAiBody, fontRegular, fontBold, headerSubtitleLines, pageTitle } = opts;
+
+  const sessionDate = parseSessionDate(context.sessionDateRaw);
+  const formattedDate = sessionDate ? format(sessionDate, 'MMMM d, yyyy') : context.sessionDateRaw;
+
+  // Header
+  drawTopHeader(doc, 'gradnext', context.menteeName || '', fontBold);
+  if (headerSubtitleLines?.length) {
+    doc.fontSize(12).font(fontRegular).fillColor('#4b5563');
+    doc.text(headerSubtitleLines.join('\n'), { align: 'left' });
+    doc.moveDown(0.6);
+  }
+  drawDivider(doc);
+
+  if (pageTitle) {
+    doc.fontSize(12).font(fontBold).fillColor('#111827');
+    doc.text(pageTitle, { align: 'left' });
+    doc.moveDown(0.5);
+    resetCursor(doc);
+  }
+
+  // Meta information (two columns)
+  doc.fontSize(10).font(fontRegular).fillColor('#374151');
+  const leftX = pageLeft(doc);
+  const topY = doc.y;
+  const colWidth = contentWidth(doc) / 2 - 10;
+
+  const metaLinesLeft = [
+    `Role: Business Generalist`,
+    `Interviewer: ${context.mentorName || 'NA'}`,
+    `Difficulty Level: ${context.difficultyLevel || 'NA'}`,
+  ];
+
+  const metaLinesRight = [
+    `Date: ${formattedDate}`,
+    `Case Type: ${context.caseType || 'NA'}`,
+    `Industry: ${context.industry || 'NA'}`,
+  ];
+
+  doc.text(metaLinesLeft.join('\n'), leftX, topY, { width: colWidth });
+  doc.text(metaLinesRight.join('\n'), leftX + colWidth + 20, topY, { width: colWidth });
+
+  const lineHeight = doc.currentLineHeight(true) + 2;
+  const metaHeight = Math.max(metaLinesLeft.length, metaLinesRight.length) * lineHeight;
+  doc.y = topY + metaHeight + 14;
+  resetCursor(doc);
+
+  // Performance Breakdown (left aligned for smoother flow)
+  const tableWidth = Math.min(340, contentWidth(doc));
+  const tableX = pageLeft(doc);
+  const tableHeadingY = doc.y;
+
+  doc.fontSize(12).font(fontBold).fillColor('#111827');
+  doc.text('Performance Breakdown (Score out of 5)', tableX, tableHeadingY, {
+    width: tableWidth,
+    align: 'left',
+  });
+  doc.y = tableHeadingY + doc.currentLineHeight(true) + 6;
+  resetCursor(doc);
+
+  const rows: Array<[string, string]> = [
+    ['Scoping Questions', context.ratings.scoping || 'NA'],
+    ['Case Setup and Structure', context.ratings.structure || 'NA'],
+    ['Communication and Confidence', context.ratings.communication || 'NA'],
+    ['Business Acumen and Creativity', context.ratings.businessAcumen || 'NA'],
+    ['Overall Score', context.ratings.overall || 'NA'],
+  ];
+
+  const tableBottomY = drawRatingsTable(doc, {
+    x: tableX,
+    y: doc.y,
+    width: tableWidth,
+    fontRegular,
+    fontBold,
+    rows,
+  });
+
+  doc.y = tableBottomY + 20;
+  resetCursor(doc);
+
+  // Feedback Summary
+  doc.fontSize(12).font(fontBold).fillColor('#111827').text('Feedback Summary', {
+    align: 'left',
+  });
+
+  doc.moveDown(0.5);
+  doc.fontSize(10).font(fontRegular).fillColor('#111827');
+  doc.text(openAiBody, pageLeft(doc), doc.y, {
+    width: contentWidth(doc),
+    align: 'left',
+    lineGap: 3,
+  });
+}
+
 export async function generateSessionFeedbackPdfFromContext(
   context: MentorSessionFeedbackContext & {
     ratings: {
@@ -246,86 +359,56 @@ export async function generateSessionFeedbackPdfFromContext(
     doc.on('error', (err) => reject(err));
 
     const { regular: FONT_REGULAR, bold: FONT_BOLD } = tryRegisterReportFonts(doc);
-
-    const sessionDate = parseSessionDate(context.sessionDateRaw);
-    const formattedDate = sessionDate ? format(sessionDate, 'MMMM d, yyyy') : context.sessionDateRaw;
-
-    // Header
-    drawTopHeader(doc, 'gradnext', context.menteeName || '', FONT_BOLD);
-    drawDivider(doc);
-
-    // Meta information (two columns)
-    doc.fontSize(10).font(FONT_REGULAR).fillColor('#374151');
-    const leftX = pageLeft(doc);
-    const topY = doc.y;
-    const colWidth = contentWidth(doc) / 2 - 10;
-
-    const metaLinesLeft = [
-      `Role: Business Generalist`,
-      `Interviewer: ${context.mentorName || 'NA'}`,
-      `Difficulty Level: ${context.difficultyLevel || 'NA'}`,
-    ];
-
-    const metaLinesRight = [
-      `Date: ${formattedDate}`,
-      `Case Type: ${context.caseType || 'NA'}`,
-      `Industry: ${context.industry || 'NA'}`,
-    ];
-
-    doc.text(metaLinesLeft.join('\n'), leftX, topY, { width: colWidth });
-    doc.text(metaLinesRight.join('\n'), leftX + colWidth + 20, topY, { width: colWidth });
-
-    const lineHeight = doc.currentLineHeight(true) + 2;
-    const metaHeight = Math.max(metaLinesLeft.length, metaLinesRight.length) * lineHeight;
-    doc.y = topY + metaHeight + 14;
-    resetCursor(doc);
-
-    // Performance Breakdown (left aligned for smoother flow)
-    const tableWidth = Math.min(340, contentWidth(doc));
-    const tableX = pageLeft(doc);
-    const tableHeadingY = doc.y;
-
-    doc.fontSize(12).font(FONT_BOLD).fillColor('#111827');
-    doc.text('Performance Breakdown (Score out of 5)', tableX, tableHeadingY, {
-      width: tableWidth,
-      align: 'left',
-    });
-    doc.y = tableHeadingY + doc.currentLineHeight(true) + 6;
-    resetCursor(doc);
-
-    const rows: Array<[string, string]> = [
-      ['Scoping Questions', context.ratings.scoping || 'NA'],
-      ['Case Setup and Structure', context.ratings.structure || 'NA'],
-      ['Communication and Confidence', context.ratings.communication || 'NA'],
-      ['Business Acumen and Creativity', context.ratings.businessAcumen || 'NA'],
-      ['Overall Score', context.ratings.overall || 'NA'],
-    ];
-
-    const tableBottomY = drawRatingsTable(doc, {
-      x: tableX,
-      y: doc.y,
-      width: tableWidth,
+    drawSessionFeedbackReportPage(doc, {
+      context,
+      openAiBody,
       fontRegular: FONT_REGULAR,
       fontBold: FONT_BOLD,
-      rows,
     });
 
-    doc.y = tableBottomY + 20;
-    resetCursor(doc);
+    doc.end();
+  });
+}
 
-    // Feedback Summary
-    doc
-      .fontSize(12)
-      .font(FONT_BOLD)
-      .fillColor('#111827')
-      .text('Feedback Summary', { align: 'left' });
+export async function generateCandidateWeekConcatenatedReportsPdf(
+  candidateName: string,
+  weekLabel: string,
+  sessions: Array<{
+    context: MentorSessionFeedbackContext & {
+      ratings: {
+        scoping: string;
+        structure: string;
+        communication: string;
+        businessAcumen: string;
+        overall: string;
+      };
+    };
+    formattedDate: string;
+    openAiBody: string;
+  }>
+): Promise<Buffer> {
+  return await new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const chunks: Uint8Array[] = [];
 
-    doc.moveDown(0.5);
-    doc.fontSize(10).font(FONT_REGULAR).fillColor('#111827');
-    doc.text(openAiBody, pageLeft(doc), doc.y, {
-      width: contentWidth(doc),
-      align: 'left',
-      lineGap: 3,
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks.map((c) => Buffer.from(c)))));
+    doc.on('error', (err) => reject(err));
+
+    const { regular: FONT_REGULAR, bold: FONT_BOLD } = tryRegisterReportFonts(doc);
+    const total = sessions.length;
+    const subtitle = `${weekLabel}\n${total} Session Report${total === 1 ? '' : 's'} (Concatenated)`;
+
+    sessions.forEach((s, idx) => {
+      if (idx > 0) doc.addPage();
+      drawSessionFeedbackReportPage(doc, {
+        context: s.context,
+        openAiBody: s.openAiBody,
+        fontRegular: FONT_REGULAR,
+        fontBold: FONT_BOLD,
+        headerSubtitleLines: [subtitle],
+        pageTitle: `Session ${idx + 1} of ${total} - ${s.formattedDate}`,
+      });
     });
 
     doc.end();

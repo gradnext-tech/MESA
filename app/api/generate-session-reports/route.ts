@@ -7,28 +7,15 @@ import {
   computeProgramWeekNumber,
   generateReportBodyWithOpenAI,
 } from '@/lib/googleDrive';
-import { generateSessionFeedbackPdfFromContext, generateCandidateWeekSummaryPdf } from '@/lib/reportPdf';
+import {
+  generateSessionFeedbackPdfFromContext,
+  generateCandidateWeekConcatenatedReportsPdf,
+} from '@/lib/reportPdf';
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { endOfWeek, format, startOfWeek } from 'date-fns';
 import { google } from 'googleapis';
 
 type SheetsRow = { [key: string]: any };
-
-interface CandidateWeekSession {
-  context: MentorSessionFeedbackContext & {
-    ratings: {
-      scoping: string;
-      structure: string;
-      communication: string;
-      businessAcumen: string;
-      overall: string;
-    };
-  };
-  summary: string;
-  formattedDate: string;
-  sessionDate: Date;
-  weekNumber: number;
-}
 
 function isAuthenticated(_request: NextRequest): boolean {
   // TODO: enhance with real auth when available
@@ -438,7 +425,22 @@ async function handleGenerate(body: GenerateBody) {
     );
 
     for (const filterCandidateName of candidatesToProcess) {
-      const candidateWeekSessions: CandidateWeekSession[] = [];
+      const candidateConcatSessions: Array<{
+        context: MentorSessionFeedbackContext & {
+          ratings: {
+            scoping: string;
+            structure: string;
+            communication: string;
+            businessAcumen: string;
+            overall: string;
+          };
+        };
+        formattedDate: string;
+        openAiBody: string;
+        sessionDate: Date;
+        weekNumber: number;
+      }> = [];
+      const candidateConcatRowNumbers: number[] = [];
       let candidateCreated = 0;
       let candidateSkipped = 0;
       const candidateSkipReasons: Record<string, number> = {};
@@ -632,11 +634,6 @@ async function handleGenerate(body: GenerateBody) {
               'NA',
             overall: getFirstNonEmptyField(row, ['Overall Rating', '_col11']) || 'NA',
           };
-          const pdfBuffer = await generateSessionFeedbackPdfFromContext({
-            ...context,
-            ratings,
-          });
-
           const sessionDate = sessionDateObj || new Date();
           const weekNumber = computeProgramWeekNumber(earliestSessionDateObj, sessionDate);
 
@@ -646,21 +643,6 @@ async function handleGenerate(body: GenerateBody) {
               'GOOGLE_REPORTS_ROOT_FOLDER_ID is not configured. Please set it in your environment.'
             );
           }
-
-          const weekFolderId = await ensureWeekFolderForSession(
-            rootFolderId,
-            weekNumber,
-            sessionDate
-          );
-
-          const filename = `${menteeName} - Session ${format(
-            sessionDate,
-            'yyyy-MM-dd'
-          )}.pdf`.replace(/[\\/:*?"<>|]/g, '_');
-
-          await uploadPdfToDrive(pdfBuffer, filename, weekFolderId);
-
-          log(`    Created: ${filename}`);
 
           // Track the sheet row so we can mark "Report Generated" = Yes
           const rowNumber =
@@ -674,28 +656,51 @@ async function handleGenerate(body: GenerateBody) {
             if (reportHeaderRowNumber == null) {
               reportHeaderRowNumber = headerRowNumber;
             }
-            pendingMarkRowNumbers.push(rowNumber);
           }
 
-          // Collect for candidate+week summary if requested
-          if (filterCandidateName && filterWeekNumber !== undefined) {
-            const summaryText = await generateReportBodyWithOpenAI(context);
-            candidateWeekSessions.push({
-              context: {
-                ...context,
-                ratings,
-              },
-              summary: summaryText,
+          // Weekly mode: generate ONE concatenated PDF per student/week instead of individual PDFs.
+          if (filterWeekNumber !== undefined) {
+            const openAiBody = await generateReportBodyWithOpenAI({ ...context, ratings });
+            candidateConcatSessions.push({
+              context: { ...context, ratings },
+              openAiBody,
               formattedDate: format(sessionDate, 'MMMM d, yyyy'),
               sessionDate,
               weekNumber,
             });
+            if (rowNumber) {
+              candidateConcatRowNumbers.push(rowNumber);
+            }
+            log(`    Queued for concatenation: ${format(sessionDate, 'yyyy-MM-dd')}`);
+          } else {
+            const pdfBuffer = await generateSessionFeedbackPdfFromContext({
+              ...context,
+              ratings,
+            });
+
+            const weekFolderId = await ensureWeekFolderForSession(
+              rootFolderId,
+              weekNumber,
+              sessionDate
+            );
+
+            const filename = `${menteeName} - Session ${format(
+              sessionDate,
+              'yyyy-MM-dd'
+            )}.pdf`.replace(/[\\/:*?"<>|]/g, '_');
+
+            await uploadPdfToDrive(pdfBuffer, filename, weekFolderId);
+            log(`    Created: ${filename}`);
+
+            if (rowNumber) {
+              pendingMarkRowNumbers.push(rowNumber);
+            }
+            created++;
+            candidateCreated++;
+            await flushMarksIfNeeded(false);
           }
         }
-        created++;
-        candidateCreated++;
         generatedSessionsKeys.push(sessionKey);
-        await flushMarksIfNeeded(false);
       } catch (error: any) {
         const errMsg = error?.message || 'Unknown error';
         log(`    Error: ${menteeName} | ${sessionDateRaw} | ${errMsg}`);
@@ -707,61 +712,63 @@ async function handleGenerate(body: GenerateBody) {
       }
     }
 
-      // If candidateName + weekNumber filters were provided, generate a weekly
-    // concatenated report for that candidate and week.
-    if (
-      !dryRun &&
-      filterCandidateName &&
-      filterWeekNumber !== undefined &&
-      candidateWeekSessions.length > 0
-    ) {
-      try {
-        const rootFolderId = process.env.GOOGLE_REPORTS_ROOT_FOLDER_ID?.trim();
-        if (!rootFolderId) {
-          throw new Error(
-            'GOOGLE_REPORTS_ROOT_FOLDER_ID is not configured. Please set it in your environment.'
+      // Weekly mode: after collecting session pages, create one concatenated PDF and mark all rows.
+      if (!dryRun && filterWeekNumber !== undefined && candidateConcatSessions.length > 0) {
+        try {
+          const rootFolderId = process.env.GOOGLE_REPORTS_ROOT_FOLDER_ID?.trim();
+          if (!rootFolderId) {
+            throw new Error(
+              'GOOGLE_REPORTS_ROOT_FOLDER_ID is not configured. Please set it in your environment.'
+            );
+          }
+
+          const sample = candidateConcatSessions[0];
+          const weekNumber = sample.weekNumber;
+          const weekStart = startOfWeek(sample.sessionDate, { weekStartsOn: 1 });
+          const weekEnd = endOfWeek(sample.sessionDate, { weekStartsOn: 1 });
+          const weekLabel = `Week ${weekNumber} (${format(
+            weekStart,
+            'MMM d'
+          )} - ${format(weekEnd, 'MMM d, yyyy')})`;
+
+          const weekFolderId = await ensureWeekFolderForSession(
+            rootFolderId,
+            weekNumber,
+            sample.sessionDate
           );
+
+          const concatenatedPdf = await generateCandidateWeekConcatenatedReportsPdf(
+            candidateConcatSessions[0].context.menteeName,
+            weekLabel,
+            candidateConcatSessions.map((s) => ({
+              context: s.context,
+              formattedDate: s.formattedDate,
+              openAiBody: s.openAiBody,
+            }))
+          );
+
+          const count = candidateConcatSessions.length;
+          const concatenatedFilename = `${candidateConcatSessions[0].context.menteeName} - ${weekLabel} - ${count} Session Report${
+            count === 1 ? '' : 's'
+          }.pdf`.replace(/[\\/:*?"<>|]/g, '_');
+
+          await uploadPdfToDrive(concatenatedPdf, concatenatedFilename, weekFolderId);
+          created += 1;
+          candidateCreated += 1;
+          log(`  Created (concatenated): ${concatenatedFilename}`);
+
+          pendingMarkRowNumbers.push(...candidateConcatRowNumbers);
+          await flushMarksIfNeeded(true);
+        } catch (err: any) {
+          const errMsg = err?.message || 'Failed to generate concatenated weekly report';
+          log(`  Concatenated weekly report error: ${errMsg}`);
+          errors.push({
+            menteeEmail: candidateConcatSessions[0].context.menteeEmail,
+            sessionDate: candidateConcatSessions[0].context.sessionDateRaw,
+            error: errMsg,
+          });
         }
-
-        const sample = candidateWeekSessions[0];
-        const weekNumber = sample.weekNumber;
-        const weekStart = startOfWeek(sample.sessionDate, { weekStartsOn: 1 });
-        const weekEnd = endOfWeek(sample.sessionDate, { weekStartsOn: 1 });
-        const weekLabel = `Week ${weekNumber} (${format(
-          weekStart,
-          'MMM d'
-        )} - ${format(weekEnd, 'MMM d, yyyy')})`;
-
-        const weekFolderId = await ensureWeekFolderForSession(
-          rootFolderId,
-          weekNumber,
-          sample.sessionDate
-        );
-
-        const summaryPdf = await generateCandidateWeekSummaryPdf(
-          sample.context.menteeName,
-          weekLabel,
-          candidateWeekSessions
-        );
-
-        const summaryFilename = `${sample.context.menteeName} - ${weekLabel} Summary.pdf`.replace(
-          /[\\/:*?"<>|]/g,
-          '_'
-        );
-
-        await uploadPdfToDrive(summaryPdf, summaryFilename, weekFolderId);
-        created += 1;
-        log(`  Weekly summary created: ${summaryFilename}`);
-      } catch (err: any) {
-        const errMsg = err?.message || 'Failed to generate weekly summary report';
-        log(`  Weekly summary error: ${errMsg}`);
-        errors.push({
-          menteeEmail: candidateWeekSessions[0].context.menteeEmail,
-          sessionDate: candidateWeekSessions[0].context.sessionDateRaw,
-          error: errMsg,
-        });
       }
-    }
 
       log(`Done: created=${candidateCreated}, skipped=${candidateSkipped}, skipReasons=${JSON.stringify(candidateSkipReasons)}, errors=${errors.length - errorsAtStart}`);
     }
