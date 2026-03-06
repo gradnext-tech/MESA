@@ -56,6 +56,7 @@ export default function WeekwiseSessions() {
   const [generatedSessionKeys, setGeneratedSessionKeys] = useState<string[]>([]);
   const [lastReportSummary, setLastReportSummary] = useState<string | null>(null);
   const [lastReportErrors, setLastReportErrors] = useState<string[]>([]);
+  const [reportLog, setReportLog] = useState<string[]>([]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -137,6 +138,7 @@ export default function WeekwiseSessions() {
     setIsGeneratingReports(true);
     setLastReportSummary(null);
     setLastReportErrors([]);
+    setReportLog([`Report generation started. Week ${getProgramWeekNumber(selectedReportWeekStart)}. Students: ${candidatesToRun.join(', ')}`]);
     try {
       const weekNumber = getProgramWeekNumber(selectedReportWeekStart);
       let totalCreated = 0;
@@ -144,6 +146,7 @@ export default function WeekwiseSessions() {
       const allErrors: string[] = [];
 
       for (const candidateName of candidatesToRun) {
+        setReportLog(prev => [...prev, `\n--- Processing: ${candidateName} (week ${weekNumber}) ---`]);
         try {
           const response = await fetch(getApiUrl('api/generate-session-reports'), {
             method: 'POST',
@@ -157,6 +160,10 @@ export default function WeekwiseSessions() {
             }),
           });
           const result = await response.json();
+
+          const apiLog: string[] = Array.isArray(result.log) ? result.log : [];
+          setReportLog(prev => [...prev, ...apiLog, `  → ${candidateName}: created=${result.created ?? 0}, skipped=${result.skipped ?? 0}, errors=${(result.errors || []).length}`]);
+
           if (response.ok && result.success) {
             totalCreated += Number(result.created || 0);
             const keys: string[] = Array.isArray(result.generatedSessionsKeys)
@@ -173,21 +180,23 @@ export default function WeekwiseSessions() {
               (result && (result.error || result.message)) ||
                 `Failed to generate reports for ${candidateName}`
             );
+            setReportLog(prev => [...prev, `  ERROR: ${result?.error || result?.message || 'Unknown'}`]);
           }
         } catch (e: any) {
-          allErrors.push(
-            `Unexpected error for ${candidateName}: ${e?.message || String(e || 'unknown')}`
-          );
+          const msg = e?.message || String(e || 'unknown');
+          allErrors.push(`Unexpected error for ${candidateName}: ${msg}`);
+          setReportLog(prev => [...prev, `  ERROR: ${msg}`]);
         }
       }
 
+      setReportLog(prev => [...prev, `\n--- Done. Total created: ${totalCreated}, errors: ${allErrors.length} ---`]);
       setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...allKeys])));
       setLastReportSummary(
         `Created ${totalCreated} report(s) for ${candidatesToRun.length} student(s) in week ${weekNumber}.`
       );
       setLastReportErrors(allErrors);
-    } catch {
-      // silent
+    } catch (err: any) {
+      setReportLog(prev => [...prev, `Fatal: ${err?.message || String(err)}`]);
     } finally {
       setIsGeneratingReports(false);
     }
@@ -197,6 +206,7 @@ export default function WeekwiseSessions() {
     setIsGeneratingReports(true);
     setLastReportSummary(null);
     setLastReportErrors([]);
+    setReportLog(['Report generation (all till date) started...']);
     try {
       const response = await fetch(getApiUrl('api/generate-session-reports'), {
         method: 'POST',
@@ -204,6 +214,9 @@ export default function WeekwiseSessions() {
         body: JSON.stringify({ dryRun: false }),
       });
       const result = await response.json();
+      if (Array.isArray(result.log)) {
+        setReportLog(prev => [...prev, ...result.log]);
+      }
       if (response.ok && result.success) {
         const keys: string[] = Array.isArray(result.generatedSessionsKeys)
           ? result.generatedSessionsKeys
@@ -219,15 +232,18 @@ export default function WeekwiseSessions() {
           });
           setLastReportErrors(errs);
         }
+        setReportLog(prev => [...prev, `Done. created=${result.created}, skipped=${result.skipped}, errors=${(result.errors || []).length}`]);
       } else {
         setLastReportSummary('Failed to generate reports for all sessions.');
         if (result?.error || result?.message) {
           setLastReportErrors([result.error || result.message]);
+          setReportLog(prev => [...prev, `ERROR: ${result.error || result.message}`, result?.details ? `Details: ${result.details}` : '']);
         }
       }
     } catch (e: any) {
       setLastReportSummary('Failed to generate reports for all sessions.');
       setLastReportErrors([e?.message || String(e || 'unknown')]);
+      setReportLog(prev => [...prev, `Fatal: ${e?.message || String(e)}`]);
     } finally {
       setIsGeneratingReports(false);
     }
@@ -485,6 +501,7 @@ export default function WeekwiseSessions() {
       setIsGeneratingReports(true);
       setLastReportSummary(null);
       setLastReportErrors([]);
+      setReportLog([`Report generation (student history) started: ${selectedStudentForHistory}`]);
       try {
         const response = await fetch(getApiUrl('api/generate-session-reports'), {
           method: 'POST',
@@ -495,6 +512,9 @@ export default function WeekwiseSessions() {
           }),
         });
         const result = await response.json();
+        if (Array.isArray(result.log)) {
+          setReportLog(prev => [...prev, ...result.log]);
+        }
         if (response.ok && result.success) {
           const keys: string[] = Array.isArray(result.generatedSessionsKeys)
             ? result.generatedSessionsKeys
@@ -510,15 +530,18 @@ export default function WeekwiseSessions() {
             });
             setLastReportErrors(errs);
           }
+          setReportLog(prev => [...prev, `Done. created=${result.created}, skipped=${result.skipped}, errors=${(result.errors || []).length}`]);
         } else {
           setLastReportSummary(`Failed to generate reports for ${selectedStudentForHistory}.`);
           if (result?.error || result?.message) {
             setLastReportErrors([result.error || result.message]);
+            setReportLog(prev => [...prev, `ERROR: ${result.error || result.message}`, result?.details ? `Details: ${result.details}` : '']);
           }
         }
       } catch (e: any) {
         setLastReportSummary(`Failed to generate reports for ${selectedStudentForHistory}.`);
         setLastReportErrors([e?.message || String(e || 'unknown')]);
+        setReportLog(prev => [...prev, `Fatal: ${e?.message || String(e)}`]);
       } finally {
         setIsGeneratingReports(false);
       }
@@ -951,19 +974,29 @@ export default function WeekwiseSessions() {
         </div>
       </div>
 
-      {/* Last report status */}
-      {lastReportSummary && (
-        <div className="rounded-lg border border-[#3A5A5A] bg-[#1A3636] p-4 space-y-2">
-          <p className="text-sm text-gray-100">{lastReportSummary}</p>
+      {/* Last report status + full log */}
+      {(lastReportSummary || reportLog.length > 0) && (
+        <div className="rounded-lg border border-[#3A5A5A] bg-[#1A3636] p-4 space-y-3">
+          {lastReportSummary && (
+            <p className="text-sm text-gray-100">{lastReportSummary}</p>
+          )}
           {lastReportErrors.length > 0 && (
             <ul className="text-xs text-red-300 list-disc list-inside space-y-1">
               {lastReportErrors.slice(0, 5).map((err, idx) => (
                 <li key={idx}>{err}</li>
               ))}
               {lastReportErrors.length > 5 && (
-                <li>+{lastReportErrors.length - 5} more error(s) (see server logs)</li>
+                <li>+{lastReportErrors.length - 5} more error(s)</li>
               )}
             </ul>
+          )}
+          {reportLog.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-gray-300 mb-1">Full log</p>
+              <pre className="text-xs text-gray-400 bg-[#0f1f1f] border border-[#3A5A5A] rounded-lg p-3 max-h-80 overflow-y-auto whitespace-pre-wrap font-mono">
+                {reportLog.join('\n')}
+              </pre>
+            </div>
           )}
         </div>
       )}

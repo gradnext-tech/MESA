@@ -263,6 +263,17 @@ async function handleGenerate(body: GenerateBody) {
     const candidateWeekSessions: CandidateWeekSession[] = [];
     const reportRowNumbers: number[] = [];
     let reportHeaderRowNumber: number | null = null;
+    const logLines: string[] = [];
+
+    const log = (msg: string) => {
+      logLines.push(msg);
+      // eslint-disable-next-line no-console
+      console.log(`[generate-reports] ${msg}`);
+    };
+
+    log(
+      `Started. Filters: candidateName=${filterCandidateName || '(all)'}, weekNumber=${filterWeekNumber ?? '(all)'}, sessionDate=${filterSessionDate || '(all)'}, limit=${limit ?? '(none)'}`
+    );
 
     for (const row of candidateRows) {
       if (limit && created >= limit) {
@@ -338,6 +349,7 @@ async function handleGenerate(body: GenerateBody) {
       if (isAlreadyGenerated) {
         skipped++;
         skipReasons.alreadyGenerated = (skipReasons.alreadyGenerated || 0) + 1;
+        log(`  Skip (already generated): ${menteeName} | ${sessionDateRaw} | ${mentorName}`);
         continue;
       }
 
@@ -406,6 +418,7 @@ async function handleGenerate(body: GenerateBody) {
       if (!rawFeedback) {
         skipped++;
         skipReasons.noFeedback = (skipReasons.noFeedback || 0) + 1;
+        log(`  Skip (no feedback): ${menteeName} | ${sessionDateRaw}`);
         continue;
       }
 
@@ -438,6 +451,8 @@ async function handleGenerate(body: GenerateBody) {
       };
 
       const sessionKey = `${menteeName}|${mentorName}|${sessionDateRaw}`;
+
+      log(`  Processing: ${menteeName} | ${sessionDateRaw} | ${mentorName}`);
 
       try {
         if (!dryRun) {
@@ -481,6 +496,8 @@ async function handleGenerate(body: GenerateBody) {
 
           await uploadPdfToDrive(pdfBuffer, filename, weekFolderId);
 
+          log(`    Created: ${filename}`);
+
           // Track the sheet row so we can mark "Report Generated" = Yes
           const rowNumber =
             typeof row._rowNumber === 'number' && row._rowNumber > 0 ? row._rowNumber : null;
@@ -513,10 +530,12 @@ async function handleGenerate(body: GenerateBody) {
         created++;
         generatedSessionsKeys.push(sessionKey);
       } catch (error: any) {
+        const errMsg = error?.message || 'Unknown error';
+        log(`    Error: ${menteeName} | ${sessionDateRaw} | ${errMsg}`);
         errors.push({
           menteeEmail,
           sessionDate: sessionDateRaw,
-          error: error?.message || 'Unknown error',
+          error: errMsg,
         });
       }
     }
@@ -565,14 +584,19 @@ async function handleGenerate(body: GenerateBody) {
 
         await uploadPdfToDrive(summaryPdf, summaryFilename, weekFolderId);
         created += 1;
+        log(`  Weekly summary created: ${summaryFilename}`);
       } catch (err: any) {
+        const errMsg = err?.message || 'Failed to generate weekly summary report';
+        log(`  Weekly summary error: ${errMsg}`);
         errors.push({
           menteeEmail: candidateWeekSessions[0].context.menteeEmail,
           sessionDate: candidateWeekSessions[0].context.sessionDateRaw,
-          error: err?.message || 'Failed to generate weekly summary report',
+          error: errMsg,
         });
       }
     }
+
+    log(`Done: created=${created}, skipped=${skipped}, skipReasons=${JSON.stringify(skipReasons)}, errors=${errors.length}`);
 
     // Mark generated rows in the "Candidate feedback form filled by mentors" sheet
     if (!dryRun && reportRowNumbers.length && reportHeaderRowNumber && feedbacksSpreadsheetId) {
@@ -598,14 +622,18 @@ async function handleGenerate(body: GenerateBody) {
         skipReasons,
         errors,
         generatedSessionsKeys,
+        log: logLines,
       },
       { status: 200 }
     );
   } catch (error: any) {
+    const details = error?.message || String(error);
+    // eslint-disable-next-line no-console
+    console.error('[generate-reports] Fatal error:', details, error?.stack);
     return NextResponse.json(
       {
         error: 'Failed to generate session feedback reports',
-        details: error?.message || String(error),
+        details,
       },
       { status: 500 }
     );
