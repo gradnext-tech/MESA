@@ -141,62 +141,49 @@ export default function WeekwiseSessions() {
     setReportLog([`Report generation started. Week ${getProgramWeekNumber(selectedReportWeekStart)}. Students: ${candidatesToRun.join(', ')}`]);
     try {
       const weekNumber = getProgramWeekNumber(selectedReportWeekStart);
-      let totalCreated = 0;
-      const allKeys: string[] = [];
-      const allErrors: string[] = [];
 
-      for (const candidateName of candidatesToRun) {
-        setReportLog(prev => [...prev, `\n--- Processing: ${candidateName} (week ${weekNumber}) ---`]);
-        try {
-          const response = await fetch(getApiUrl('api/generate-session-reports'), {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              candidateName,
-              weekNumber,
-              dryRun: false,
-            }),
+      const response = await fetch(getApiUrl('api/generate-session-reports'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          candidateNames: candidatesToRun,
+          weekNumber,
+          dryRun: false,
+        }),
+      });
+      const result = await response.json();
+
+      const apiLog: string[] = Array.isArray(result.log) ? result.log : [];
+      setReportLog(prev => [...prev, ...apiLog]);
+
+      if (response.ok && result.success) {
+        const totalCreated = Number(result.created || 0);
+        const keys: string[] = Array.isArray(result.generatedSessionsKeys)
+          ? result.generatedSessionsKeys
+          : [];
+        const allErrors: string[] = [];
+        if (Array.isArray(result.errors)) {
+          result.errors.forEach((e: any) => {
+            if (e?.error) allErrors.push(e.error);
           });
-          const result = await response.json();
-
-          const apiLog: string[] = Array.isArray(result.log) ? result.log : [];
-          setReportLog(prev => [...prev, ...apiLog, `  → ${candidateName}: created=${result.created ?? 0}, skipped=${result.skipped ?? 0}, errors=${(result.errors || []).length}`]);
-
-          if (response.ok && result.success) {
-            totalCreated += Number(result.created || 0);
-            const keys: string[] = Array.isArray(result.generatedSessionsKeys)
-              ? result.generatedSessionsKeys
-              : [];
-            allKeys.push(...keys);
-            if (Array.isArray(result.errors)) {
-              result.errors.forEach((e: any) => {
-                if (e?.error) allErrors.push(e.error);
-              });
-            }
-          } else {
-            allErrors.push(
-              (result && (result.error || result.message)) ||
-                `Failed to generate reports for ${candidateName}`
-            );
-            setReportLog(prev => [...prev, `  ERROR: ${result?.error || result?.message || 'Unknown'}`]);
-          }
-        } catch (e: any) {
-          const msg = e?.message || String(e || 'unknown');
-          allErrors.push(`Unexpected error for ${candidateName}: ${msg}`);
-          setReportLog(prev => [...prev, `  ERROR: ${msg}`]);
         }
+        setReportLog(prev => [...prev, `\n--- Done. Total created: ${totalCreated}, errors: ${allErrors.length} ---`]);
+        setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...keys])));
+        setLastReportSummary(
+          `Created ${totalCreated} report(s) for ${candidatesToRun.length} student(s) in week ${weekNumber}.`
+        );
+        setLastReportErrors(allErrors);
+      } else {
+        const errMsg = result?.error || result?.message || 'Unknown';
+        setReportLog(prev => [...prev, `  ERROR: ${errMsg}`, `\n--- Done. Total created: 0, errors: 1 ---`]);
+        setLastReportSummary('Failed to generate reports.');
+        setLastReportErrors([errMsg]);
       }
-
-      setReportLog(prev => [...prev, `\n--- Done. Total created: ${totalCreated}, errors: ${allErrors.length} ---`]);
-      setGeneratedSessionKeys(prev => Array.from(new Set([...(prev || []), ...allKeys])));
-      setLastReportSummary(
-        `Created ${totalCreated} report(s) for ${candidatesToRun.length} student(s) in week ${weekNumber}.`
-      );
-      setLastReportErrors(allErrors);
     } catch (err: any) {
       setReportLog(prev => [...prev, `Fatal: ${err?.message || String(err)}`]);
+      setLastReportErrors([err?.message || String(err)]);
     } finally {
       setIsGeneratingReports(false);
     }

@@ -196,6 +196,7 @@ type GenerateBody = {
   dryRun?: boolean;
   mentorName?: string;
   candidateName?: string;
+  candidateNames?: string[];
   sessionDate?: string;
   weekNumber?: number;
 };
@@ -248,19 +249,27 @@ async function handleGenerate(body: GenerateBody) {
     const dryRun = Boolean(body.dryRun);
 
     const filterMentorName = (body.mentorName || '').toLowerCase().trim();
-    const filterCandidateName = (body.candidateName || '').toLowerCase().trim();
     const filterSessionDate = (body.sessionDate || '').trim();
     const filterWeekNumber =
       typeof body.weekNumber === 'number' && !Number.isNaN(body.weekNumber)
         ? body.weekNumber
         : undefined;
 
+    const candidateNamesToProcess: string[] =
+      Array.isArray(body.candidateNames) && body.candidateNames.length > 0
+        ? body.candidateNames.map((c) => String(c || '').toLowerCase().trim()).filter(Boolean)
+        : body.candidateName
+        ? [String(body.candidateName).toLowerCase().trim()]
+        : [];
+
+    const candidatesToProcess: (string | undefined)[] =
+      candidateNamesToProcess.length > 0 ? candidateNamesToProcess : [undefined];
+
     let created = 0;
     let skipped = 0;
     const skipReasons: Record<string, number> = {};
     const errors: Array<{ menteeEmail: string; sessionDate: string; error: string }> = [];
     const generatedSessionsKeys: string[] = [];
-    const candidateWeekSessions: CandidateWeekSession[] = [];
     const reportRowNumbers: number[] = [];
     let reportHeaderRowNumber: number | null = null;
     const logLines: string[] = [];
@@ -272,8 +281,18 @@ async function handleGenerate(body: GenerateBody) {
     };
 
     log(
-      `Started. Filters: candidateName=${filterCandidateName || '(all)'}, weekNumber=${filterWeekNumber ?? '(all)'}, sessionDate=${filterSessionDate || '(all)'}, limit=${limit ?? '(none)'}`
+      `Started. Filters: candidateName=${candidatesToProcess.length === 1 && candidatesToProcess[0] ? candidatesToProcess[0] : '(batch)'}, weekNumber=${filterWeekNumber ?? '(all)'}, sessionDate=${filterSessionDate || '(all)'}, limit=${limit ?? '(none)'}`
     );
+
+    for (const filterCandidateName of candidatesToProcess) {
+      const candidateWeekSessions: CandidateWeekSession[] = [];
+      let candidateCreated = 0;
+      let candidateSkipped = 0;
+      const candidateSkipReasons: Record<string, number> = {};
+      const errorsAtStart = errors.length;
+      log(
+        `--- Processing: ${filterCandidateName ?? '(all)'} (week ${filterWeekNumber ?? 'all'}) ---`
+      );
 
     for (const row of candidateRows) {
       if (limit && created >= limit) {
@@ -332,41 +351,7 @@ async function handleGenerate(body: GenerateBody) {
 
       const sessionDateObj = parseSessionDate(sessionDateRaw || '');
 
-      // Skip if report is already marked as generated in the sheet
-      const reportGeneratedRaw =
-        getFirstNonEmptyField(row, [
-          'is report generated',
-          'Report Generated',
-          'report generated',
-          'Is Report Generated',
-        ]) || '';
-      const reportGeneratedNormalized = reportGeneratedRaw.trim().toLowerCase();
-      const isAlreadyGenerated =
-        reportGeneratedNormalized === 'yes' ||
-        reportGeneratedNormalized === 'true' ||
-        reportGeneratedNormalized === 'done' ||
-        reportGeneratedNormalized === 'generated';
-      if (isAlreadyGenerated) {
-        skipped++;
-        skipReasons.alreadyGenerated = (skipReasons.alreadyGenerated || 0) + 1;
-        log(`  Skip (already generated): ${menteeName} | ${sessionDateRaw} | ${mentorName}`);
-        continue;
-      }
-
-      // Raw feedback: explicitly take column K (11th column, index 10) as requested
-      let rawFeedback = '';
-      if (row['_col10'] !== undefined && row['_col10'] !== null) {
-        rawFeedback = String(row['_col10']).trim();
-      }
-
-      const caseType = getFirstNonEmptyField(row, ['Case Type', 'caseType', 'Case type']);
-      const difficultyLevel = getFirstNonEmptyField(row, [
-        'Difficulty Level',
-        'difficultyLevel',
-        'Difficulty',
-      ]);
-
-      // If specific filters are provided, enforce them
+      // Apply filters first so we only consider rows for the current candidate
       if (filterMentorName) {
         const mentorNameLower = (mentorName || '').toLowerCase().trim();
         if (!mentorNameLower || mentorNameLower !== filterMentorName) {
@@ -414,10 +399,48 @@ async function handleGenerate(body: GenerateBody) {
         }
       }
 
+      // Skip if report is already marked as generated in the sheet
+      const reportGeneratedRaw =
+        getFirstNonEmptyField(row, [
+          'is report generated',
+          'Report Generated',
+          'report generated',
+          'Is Report Generated',
+        ]) || '';
+      const reportGeneratedNormalized = reportGeneratedRaw.trim().toLowerCase();
+      const isAlreadyGenerated =
+        reportGeneratedNormalized === 'yes' ||
+        reportGeneratedNormalized === 'true' ||
+        reportGeneratedNormalized === 'done' ||
+        reportGeneratedNormalized === 'generated';
+      if (isAlreadyGenerated) {
+        skipped++;
+        candidateSkipped++;
+        skipReasons.alreadyGenerated = (skipReasons.alreadyGenerated || 0) + 1;
+        candidateSkipReasons.alreadyGenerated = (candidateSkipReasons.alreadyGenerated || 0) + 1;
+        log(`  Skip (already generated): ${menteeName} | ${sessionDateRaw} | ${mentorName}`);
+        continue;
+      }
+
+      // Raw feedback: explicitly take column K (11th column, index 10) as requested
+      let rawFeedback = '';
+      if (row['_col10'] !== undefined && row['_col10'] !== null) {
+        rawFeedback = String(row['_col10']).trim();
+      }
+
+      const caseType = getFirstNonEmptyField(row, ['Case Type', 'caseType', 'Case type']);
+      const difficultyLevel = getFirstNonEmptyField(row, [
+        'Difficulty Level',
+        'difficultyLevel',
+        'Difficulty',
+      ]);
+
       // At minimum we need some feedback text
       if (!rawFeedback) {
         skipped++;
+        candidateSkipped++;
         skipReasons.noFeedback = (skipReasons.noFeedback || 0) + 1;
+        candidateSkipReasons.noFeedback = (candidateSkipReasons.noFeedback || 0) + 1;
         log(`  Skip (no feedback): ${menteeName} | ${sessionDateRaw}`);
         continue;
       }
@@ -433,6 +456,8 @@ async function handleGenerate(body: GenerateBody) {
         sessionDateRaw = earliestSessionDateRaw;
         skipReasons.missingDateUsedEarliest =
           (skipReasons.missingDateUsedEarliest || 0) + 1;
+        candidateSkipReasons.missingDateUsedEarliest =
+          (candidateSkipReasons.missingDateUsedEarliest || 0) + 1;
       }
 
       const industry =
@@ -528,6 +553,7 @@ async function handleGenerate(body: GenerateBody) {
           }
         }
         created++;
+        candidateCreated++;
         generatedSessionsKeys.push(sessionKey);
       } catch (error: any) {
         const errMsg = error?.message || 'Unknown error';
@@ -540,7 +566,7 @@ async function handleGenerate(body: GenerateBody) {
       }
     }
 
-    // If candidateName + weekNumber filters were provided, generate a weekly
+      // If candidateName + weekNumber filters were provided, generate a weekly
     // concatenated report for that candidate and week.
     if (
       !dryRun &&
@@ -596,7 +622,8 @@ async function handleGenerate(body: GenerateBody) {
       }
     }
 
-    log(`Done: created=${created}, skipped=${skipped}, skipReasons=${JSON.stringify(skipReasons)}, errors=${errors.length}`);
+      log(`Done: created=${candidateCreated}, skipped=${candidateSkipped}, skipReasons=${JSON.stringify(candidateSkipReasons)}, errors=${errors.length - errorsAtStart}`);
+    }
 
     // Mark generated rows in the "Candidate feedback form filled by mentors" sheet
     if (!dryRun && reportRowNumbers.length && reportHeaderRowNumber && feedbacksSpreadsheetId) {
