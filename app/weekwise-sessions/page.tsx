@@ -45,6 +45,7 @@ export default function WeekwiseSessions() {
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [sendingSessionKey, setSendingSessionKey] = useState<string | null>(null);
   const [selectedSendStudents, setSelectedSendStudents] = useState<string[]>([]);
+  const [isAllStudentsForSend, setIsAllStudentsForSend] = useState(false);
   const [selectedSendWeekStart, setSelectedSendWeekStart] = useState<Date | null>(null);
   const [selectedReportCandidates, setSelectedReportCandidates] = useState<string[]>([]);
   const [selectedReportWeekStart, setSelectedReportWeekStart] = useState<Date | null>(null);
@@ -844,12 +845,33 @@ export default function WeekwiseSessions() {
               Select one or more students and a week. The system will search that week folder in Drive, find each student&apos;s concatenated report, and send it.
             </p>
             <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[#173232] border border-[#3A5A5A]">
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-100">Select all students</span>
+                  <span className="text-xs text-gray-400">
+                    When enabled, reports will be sent to every student with an email.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAllStudentsForSend((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    isAllStudentsForSend ? 'bg-emerald-500' : 'bg-gray-500'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      isAllStudentsForSend ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Students</label>
                 <div className="max-h-48 overflow-y-auto rounded-lg border border-[#3A5A5A] bg-[#1a3434] p-2 space-y-1">
                   {uniqueCandidateNames.map((name) => {
-                    const checked = selectedSendStudents.includes(name);
                     const hasEmail = !!studentNameToEmail.get(name);
+                    const checked = isAllStudentsForSend ? hasEmail : selectedSendStudents.includes(name);
                     return (
                       <label
                         key={name}
@@ -858,8 +880,9 @@ export default function WeekwiseSessions() {
                         <input
                           type="checkbox"
                           checked={checked}
-                          disabled={!hasEmail}
+                          disabled={!hasEmail || isAllStudentsForSend}
                           onChange={() => {
+                            if (isAllStudentsForSend) return;
                             setSelectedSendStudents((prev) =>
                               checked ? prev.filter((n) => n !== name) : [...prev, name]
                             );
@@ -931,6 +954,7 @@ export default function WeekwiseSessions() {
                 onClick={() => {
                   setIsSendModalOpen(false);
                   setSelectedSendStudents([]);
+                  setIsAllStudentsForSend(false);
                   setLastReportSummary(null);
                   setLastReportErrors([]);
                 }}
@@ -941,13 +965,15 @@ export default function WeekwiseSessions() {
               <button
                 type="button"
                 disabled={
-                  selectedSendStudents.length === 0 ||
+                  (!isAllStudentsForSend && selectedSendStudents.length === 0) ||
                   !selectedSendWeekStart ||
-                  selectedSendStudents.some((n) => !studentNameToEmail.get(n)) ||
+                  (isAllStudentsForSend && uniqueCandidateNames.filter((n) => studentNameToEmail.get(n)).length === 0) ||
                   isGeneratingReports
                 }
                 onClick={async () => {
-                  const toSend = selectedSendStudents.filter((n) => studentNameToEmail.get(n));
+                  const toSend = isAllStudentsForSend
+                    ? uniqueCandidateNames.filter((n) => studentNameToEmail.get(n))
+                    : selectedSendStudents.filter((n) => studentNameToEmail.get(n));
                   if (!toSend.length || !selectedSendWeekStart) return;
                   setIsGeneratingReports(true);
                   setLastReportSummary(null);
@@ -991,7 +1017,7 @@ export default function WeekwiseSessions() {
                 }}
                 className="px-4 py-2 text-sm rounded-lg bg-[#F59E0B] hover:bg-[#D97706] text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isGeneratingReports ? 'Sending...' : `Send report${selectedSendStudents.length > 1 ? 's' : ''}`}
+                {isGeneratingReports ? 'Sending...' : `Send report${(isAllStudentsForSend ? uniqueCandidateNames.filter((n) => studentNameToEmail.get(n)).length : selectedSendStudents.length) > 1 ? 's' : ''}`}
               </button>
             </div>
           </div>
