@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
       return hasName && hasWeek && hasSessionReport;
     });
 
-    let file = candidates[0] || null;
+    let file: { id?: string | null; name?: string | null } | null = candidates[0] ?? null;
     if (!file?.id && !useWeekMode) {
       const individualFilename = `${menteeName} - Session ${format(sessionDateObj, 'yyyy-MM-dd')}.pdf`.replace(
         /[\\/:*?"<>|]/g,
@@ -318,7 +318,7 @@ export async function POST(request: NextRequest) {
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
-      file = singleResp.data.files?.[0] || null;
+      file = singleResp.data.files?.[0] ?? null;
     }
 
     if (!file || !file.id) {
