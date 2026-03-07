@@ -44,7 +44,7 @@ export default function WeekwiseSessions() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [sendingSessionKey, setSendingSessionKey] = useState<string | null>(null);
-  const [selectedSendStudent, setSelectedSendStudent] = useState<string>('');
+  const [selectedSendStudents, setSelectedSendStudents] = useState<string[]>([]);
   const [selectedSendWeekStart, setSelectedSendWeekStart] = useState<Date | null>(null);
   const [selectedReportCandidates, setSelectedReportCandidates] = useState<string[]>([]);
   const [selectedReportWeekStart, setSelectedReportWeekStart] = useState<Date | null>(null);
@@ -835,30 +835,54 @@ export default function WeekwiseSessions() {
         </div>
       )}
 
-      {/* Send reports modal: select student + week, then send the concatenated weekly report */}
+      {/* Send reports modal: multi-select students + week, then send the concatenated weekly report */}
       {isSendModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900/70 via-slate-900/40 to-emerald-900/60 backdrop-blur-sm">
           <div className="bg-[#102525] border border-[#3A5A5A] rounded-2xl p-6 w-full max-w-xl shadow-2xl">
-            <h2 className="text-xl font-semibold text-white mb-2">Send report to student</h2>
+            <h2 className="text-xl font-semibold text-white mb-2">Send reports to students</h2>
             <p className="text-xs text-gray-300 mb-4">
-              Select a student and week. The system will search that week folder in Drive, find the concatenated report for that student, and send it once.
+              Select one or more students and a week. The system will search that week folder in Drive, find each student&apos;s concatenated report, and send it.
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-300 mb-1">Student</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg border text-sm bg-[#1a3434] border-[#3A5A5A] text-white"
-                  value={selectedSendStudent}
-                  onChange={(e) => setSelectedSendStudent(e.target.value)}
-                >
-                  <option value="">Select student</option>
-                  {uniqueCandidateNames.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                      {studentNameToEmail.get(name) ? ` (${studentNameToEmail.get(name)})` : ''}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm text-gray-300 mb-1">Students</label>
+                <div className="max-h-48 overflow-y-auto rounded-lg border border-[#3A5A5A] bg-[#1a3434] p-2 space-y-1">
+                  {uniqueCandidateNames.map((name) => {
+                    const checked = selectedSendStudents.includes(name);
+                    const hasEmail = !!studentNameToEmail.get(name);
+                    return (
+                      <label
+                        key={name}
+                        className={`flex items-center gap-2 text-sm cursor-pointer ${!hasEmail ? 'opacity-60' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!hasEmail}
+                          onChange={() => {
+                            setSelectedSendStudents((prev) =>
+                              checked ? prev.filter((n) => n !== name) : [...prev, name]
+                            );
+                          }}
+                          className="w-4 h-4 rounded border-[#3A5A5A]"
+                        />
+                        <span className="text-gray-200">
+                          {name}
+                          {hasEmail ? (
+                            <span className="text-gray-400 text-xs ml-1">
+                              ({studentNameToEmail.get(name)})
+                            </span>
+                          ) : (
+                            <span className="text-amber-400 text-xs ml-1">(no email)</span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {uniqueCandidateNames.length === 0 && (
+                    <p className="text-xs text-gray-400">No students found.</p>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Week</label>
@@ -906,6 +930,7 @@ export default function WeekwiseSessions() {
                 type="button"
                 onClick={() => {
                   setIsSendModalOpen(false);
+                  setSelectedSendStudents([]);
                   setLastReportSummary(null);
                   setLastReportErrors([]);
                 }}
@@ -916,46 +941,57 @@ export default function WeekwiseSessions() {
               <button
                 type="button"
                 disabled={
-                  !selectedSendStudent ||
+                  selectedSendStudents.length === 0 ||
                   !selectedSendWeekStart ||
-                  !studentNameToEmail.get(selectedSendStudent) ||
+                  selectedSendStudents.some((n) => !studentNameToEmail.get(n)) ||
                   isGeneratingReports
                 }
                 onClick={async () => {
-                  const email = studentNameToEmail.get(selectedSendStudent);
-                  if (!email || !selectedSendStudent || !selectedSendWeekStart) return;
+                  const toSend = selectedSendStudents.filter((n) => studentNameToEmail.get(n));
+                  if (!toSend.length || !selectedSendWeekStart) return;
                   setIsGeneratingReports(true);
                   setLastReportSummary(null);
                   setLastReportErrors([]);
-                  try {
-                    const weekNumber = getProgramWeekNumber(selectedSendWeekStart);
-                    const response = await fetch(getApiUrl('api/send-session-report-email'), {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        menteeEmail: email,
-                        menteeName: selectedSendStudent,
-                        weekNumber,
-                      }),
-                    });
-                    const result = await response.json();
-                    if (response.ok && result.success) {
-                      setLastReportSummary(result.message || 'Report email sent.');
-                      if (!result.alreadySent) await handleRefresh();
-                    } else {
-                      setLastReportSummary('Failed to send report email.');
-                      setLastReportErrors([result?.error || result?.details || 'Unknown error']);
+                  const weekNumber = getProgramWeekNumber(selectedSendWeekStart);
+                  let sent = 0;
+                  const errs: string[] = [];
+                  for (const name of toSend) {
+                    const email = studentNameToEmail.get(name);
+                    if (!email) continue;
+                    try {
+                      const response = await fetch(getApiUrl('api/send-session-report-email'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          menteeEmail: email,
+                          menteeName: name,
+                          weekNumber,
+                        }),
+                      });
+                      const result = await response.json();
+                      if (response.ok && result.success && !result.alreadySent) {
+                        sent++;
+                      } else if (!response.ok || !result.success) {
+                        errs.push(`${name}: ${result?.error || result?.details || 'Unknown error'}`);
+                      }
+                    } catch (e: any) {
+                      errs.push(`${name}: ${e?.message || String(e)}`);
                     }
-                  } catch (e: any) {
-                    setLastReportSummary('Failed to send report email.');
-                    setLastReportErrors([e?.message || String(e)]);
-                  } finally {
-                    setIsGeneratingReports(false);
                   }
+                  setLastReportSummary(
+                    sent > 0
+                      ? `Sent ${sent} report(s)${errs.length ? `. ${errs.length} failed.` : '.'}`
+                      : errs.length
+                        ? 'Failed to send reports.'
+                        : 'All selected reports were already sent.'
+                  );
+                  setLastReportErrors(errs);
+                  if (sent > 0) await handleRefresh();
+                  setIsGeneratingReports(false);
                 }}
                 className="px-4 py-2 text-sm rounded-lg bg-[#F59E0B] hover:bg-[#D97706] text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isGeneratingReports ? 'Sending...' : 'Send report'}
+                {isGeneratingReports ? 'Sending...' : `Send report${selectedSendStudents.length > 1 ? 's' : ''}`}
               </button>
             </div>
           </div>
