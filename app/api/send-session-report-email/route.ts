@@ -4,7 +4,7 @@ import { ensureWeekFolderForSession, getGoogleDriveClient, computeProgramWeekNum
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { sendReportEmail } from '@/lib/email';
 import { google } from 'googleapis';
-import { format } from 'date-fns';
+import { format, startOfWeek, addWeeks } from 'date-fns';
 
 type SheetsRow = { [key: string]: any };
 
@@ -128,17 +128,29 @@ export async function POST(request: NextRequest) {
       menteeEmail: string;
       menteeName: string;
       mentorName?: string;
-      sessionDate: string;
+      sessionDate?: string;
+      weekNumber?: number;
     };
 
     const menteeEmail = (body.menteeEmail || '').trim();
     const menteeName = (body.menteeName || '').trim();
     const mentorName = (body.mentorName || '').trim();
     const sessionDateStr = (body.sessionDate || '').trim();
+    const bodyWeekNumber =
+      typeof body.weekNumber === 'number' && !Number.isNaN(body.weekNumber)
+        ? body.weekNumber
+        : undefined;
 
-    if (!menteeEmail || !menteeName || !sessionDateStr) {
+    const useWeekMode = bodyWeekNumber !== undefined;
+    if (!menteeEmail || !menteeName) {
       return NextResponse.json(
-        { error: 'menteeEmail, menteeName and sessionDate are required.' },
+        { error: 'menteeEmail and menteeName are required.' },
+        { status: 400 }
+      );
+    }
+    if (!useWeekMode && !sessionDateStr) {
+      return NextResponse.json(
+        { error: 'Either sessionDate or weekNumber is required.' },
         { status: 400 }
       );
     }
@@ -167,15 +179,6 @@ export async function POST(request: NextRequest) {
       : [];
     const sessionRows: SheetsRow[] = Array.isArray(sessions) ? sessions : [];
 
-    const sessionDateObj = parseSessionDate(sessionDateStr);
-    if (!sessionDateObj) {
-      return NextResponse.json(
-        { error: `Could not parse sessionDate: ${sessionDateStr}` },
-        { status: 400 }
-      );
-    }
-
-    // Determine program week number from sessions sheet (same logic as generator)
     let earliestDate: Date | null = null;
     sessionRows.forEach((s) => {
       const raw =
@@ -193,100 +196,136 @@ export async function POST(request: NextRequest) {
       }
     });
     const earliestSessionDate = earliestDate || new Date();
-    const weekNumber = computeProgramWeekNumber(earliestSessionDate, sessionDateObj);
+    const programWeek1Start = startOfWeek(earliestSessionDate, { weekStartsOn: 1 });
 
-    // Find corresponding feedback row to mark Report Sent later
-    let targetRow: SheetsRow | null = null;
-    for (const row of candidateRows) {
-      const name = getFirstNonEmptyField(row, [
-        'Candidate Name',
-        'Mentee Name',
-        'Student Name',
-        'Full Name',
-        'Name',
-      ]);
-      const dateRaw = getFirstNonEmptyField(row, [
-        'Session Date',
-        'Date of Session',
-        'date',
-        'Date',
-        'Timestamp',
-      ]);
-      const rowDate = parseSessionDate(dateRaw);
-      if (
-        name &&
-        name.toLowerCase().trim() === menteeName.toLowerCase().trim() &&
-        rowDate &&
-        rowDate.getFullYear() === sessionDateObj.getFullYear() &&
-        rowDate.getMonth() === sessionDateObj.getMonth() &&
-        rowDate.getDate() === sessionDateObj.getDate()
-      ) {
-        targetRow = row;
-        break;
+    let weekNumber: number;
+    let sessionDateObj: Date;
+    let targetRows: SheetsRow[] = [];
+
+    if (useWeekMode) {
+      weekNumber = bodyWeekNumber;
+      sessionDateObj = addWeeks(programWeek1Start, weekNumber - 1);
+      const menteeLower = menteeName.toLowerCase().trim();
+      for (const row of candidateRows) {
+        const name = getFirstNonEmptyField(row, [
+          'Candidate Name',
+          'Mentee Name',
+          'Student Name',
+          'Full Name',
+          'Name',
+        ]);
+        if ((name || '').toLowerCase().trim() !== menteeLower) continue;
+        const dateRaw = getFirstNonEmptyField(row, [
+          'Session Date',
+          'Date of Session',
+          'date',
+          'Date',
+          'Timestamp',
+        ]);
+        const rowDate = parseSessionDate(dateRaw);
+        if (!rowDate) continue;
+        const rowWeek = computeProgramWeekNumber(earliestSessionDate, rowDate);
+        if (rowWeek !== weekNumber) continue;
+        targetRows.push(row);
       }
-    }
-
-    // Do not resend if already marked as sent
-    if (targetRow) {
-      const reportSentRaw = getFirstNonEmptyField(targetRow, [
-        'Report Sent',
-        'report sent',
-        'Is Report Sent',
-      ]);
-      const reportSentNorm = reportSentRaw.toLowerCase();
-      if (
-        reportSentNorm === 'yes' ||
-        reportSentNorm === 'true' ||
-        reportSentNorm === 'sent' ||
-        reportSentNorm === 'done'
-      ) {
+    } else {
+      sessionDateObj = parseSessionDate(sessionDateStr)!;
+      if (!sessionDateObj) {
         return NextResponse.json(
-          { success: true, message: 'Report was already sent; no duplicate sent.', alreadySent: true },
-          { status: 200 }
+          { error: `Could not parse sessionDate: ${sessionDateStr}` },
+          { status: 400 }
         );
       }
+      weekNumber = computeProgramWeekNumber(earliestSessionDate, sessionDateObj);
+      for (const row of candidateRows) {
+        const name = getFirstNonEmptyField(row, [
+          'Candidate Name',
+          'Mentee Name',
+          'Student Name',
+          'Full Name',
+          'Name',
+        ]);
+        const dateRaw = getFirstNonEmptyField(row, [
+          'Session Date',
+          'Date of Session',
+          'date',
+          'Date',
+          'Timestamp',
+        ]);
+        const rowDate = parseSessionDate(dateRaw);
+        if (
+          name &&
+          name.toLowerCase().trim() === menteeName.toLowerCase().trim() &&
+          rowDate &&
+          rowDate.getFullYear() === sessionDateObj.getFullYear() &&
+          rowDate.getMonth() === sessionDateObj.getMonth() &&
+          rowDate.getDate() === sessionDateObj.getDate()
+        ) {
+          targetRows = [row];
+          break;
+        }
+      }
     }
 
-    // Locate the PDF in Drive: try individual session file first, then concatenated weekly file
+    // Do not resend if all relevant rows are already marked as sent
+    const allAlreadySent =
+      targetRows.length > 0 &&
+      targetRows.every((row) => {
+        const raw = getFirstNonEmptyField(row, ['Report Sent', 'report sent', 'Is Report Sent']);
+        const norm = raw.toLowerCase();
+        return ['yes', 'true', 'sent', 'done'].includes(norm);
+      });
+    if (allAlreadySent) {
+      return NextResponse.json(
+        { success: true, message: 'Report was already sent; no duplicate sent.', alreadySent: true },
+        { status: 200 }
+      );
+    }
+
+    // Locate the PDF in Drive: week folder first, then find the specific report
     const weekFolderId = await ensureWeekFolderForSession(
       rootFolderId,
       weekNumber,
       sessionDateObj
     );
-    const individualFilename = `${menteeName} - Session ${format(sessionDateObj, 'yyyy-MM-dd')}.pdf`.replace(
-      /[\\/:*?"<>|]/g,
-      '_'
-    );
 
     const { drive } = getGoogleDriveClient();
-    let listResp = await drive.files.list({
-      q: `'${weekFolderId}' in parents and name = '${individualFilename}' and trashed = false`,
+    const listResp = await drive.files.list({
+      q: `'${weekFolderId}' in parents and trashed = false`,
       fields: 'files(id, name)',
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
     });
 
-    let file = listResp.data.files?.[0];
-    if (!file?.id) {
-      listResp = await drive.files.list({
-        q: `'${weekFolderId}' in parents and trashed = false`,
+    const candidates = (listResp.data.files || []).filter((f) => {
+      if (!f.name || !f.name.endsWith('.pdf')) return false;
+      const hasName = f.name.includes(menteeName);
+      const hasWeek = f.name.includes('Week') || f.name.includes('week');
+      const hasSessionReport =
+        f.name.includes('Session Report') || f.name.includes('Session report');
+      return hasName && hasWeek && hasSessionReport;
+    });
+
+    let file = candidates[0] || null;
+    if (!file?.id && !useWeekMode) {
+      const individualFilename = `${menteeName} - Session ${format(sessionDateObj, 'yyyy-MM-dd')}.pdf`.replace(
+        /[\\/:*?"<>|]/g,
+        '_'
+      );
+      const singleResp = await drive.files.list({
+        q: `'${weekFolderId}' in parents and name = '${individualFilename}' and trashed = false`,
         fields: 'files(id, name)',
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
-      const candidates = (listResp.data.files || []).filter(
-        (f) =>
-          f.name &&
-          f.name.includes(menteeName) &&
-          (f.name.includes('Week') || f.name.includes('week')) &&
-          (f.name.includes('Session Report') || f.name.includes('Session report'))
-      );
-      file = candidates[0] || null;
+      file = singleResp.data.files?.[0] || null;
     }
 
     if (!file || !file.id) {
       return NextResponse.json(
-        { error: `Report file not found in Drive for ${menteeName} on ${sessionDateStr}. Only send when a report is present.` },
+        {
+          error: `Report file not found in Drive for ${menteeName}${useWeekMode ? ` in week ${weekNumber}` : ` on ${sessionDateStr}`}. Search week folder first, then the specific report. Only send when a report is present.`,
+        },
         { status: 404 }
       );
     }
@@ -306,7 +345,10 @@ export async function POST(request: NextRequest) {
     const viewUrl = `https://drive.google.com/file/d/${file.id}/view`;
 
     // Send email via SMTP
-    const subject = `Your Gradnext session report - ${format(sessionDateObj, 'MMM d, yyyy')}`;
+    const weekLabel = useWeekMode
+      ? `Week ${weekNumber}`
+      : format(sessionDateObj, 'MMM d, yyyy');
+    const subject = `Your Gradnext session report - ${weekLabel}`;
     const plainText = `Hi ${menteeName},
 
 Your Gradnext session report is ready.
@@ -328,34 +370,47 @@ Gradnext Team`;
       html,
     });
 
-    // Mark "Report Sent" in feedback sheet if we found the row
-    if (targetRow && typeof targetRow._rowNumber === 'number') {
-      const headerRowNumber =
-        typeof targetRow._headerRowNumber === 'number'
-          ? targetRow._headerRowNumber
-          : 1;
-      await markReportSent(
-        feedbacksSpreadsheetId,
-        'Candidate feedback form filled by mentors',
-        headerRowNumber,
-        targetRow._rowNumber
-      );
+    // Mark "Report Sent" in feedback sheet for all matching rows
+    for (const targetRow of targetRows) {
+      if (targetRow && typeof targetRow._rowNumber === 'number') {
+        const headerRowNumber =
+          typeof targetRow._headerRowNumber === 'number'
+            ? targetRow._headerRowNumber
+            : 1;
+        await markReportSent(
+          feedbacksSpreadsheetId,
+          'Candidate feedback form filled by mentors',
+          headerRowNumber,
+          targetRow._rowNumber
+        );
+      }
     }
 
-    // Mark "Report Sent" in corporate tracker (column Y)
+    // Mark "Report Sent" in corporate tracker (column Y) for all matching rows
     const corporateTrackerSpreadsheetId = (
       process.env.GOOGLE_CORPORATE_TRACKER_SPREADSHEET_ID || CORPORATE_TRACKER_SPREADSHEET_ID
     ).trim();
     const corporateTrackerSheetName = (
       process.env.GOOGLE_CORPORATE_TRACKER_SHEET_NAME || 'Sheet1'
     ).trim();
-    if (corporateTrackerSpreadsheetId) {
+    if (corporateTrackerSpreadsheetId && targetRows.length > 0) {
       try {
         const corporateRows = await fetchSheetData(
           corporateTrackerSpreadsheetId,
           corporateTrackerSheetName
         );
-        const matchKey = buildSessionMatchKey(menteeName, sessionDateStr);
+        const matchedKeys = new Set(
+          targetRows.map((r) => {
+            const dateRaw = getFirstNonEmptyField(r, [
+              'Session Date',
+              'Date of Session',
+              'date',
+              'Date',
+              'Timestamp',
+            ]);
+            return buildSessionMatchKey(menteeName, dateRaw);
+          })
+        );
         for (const r of corporateRows as SheetsRow[]) {
           const name = getFirstNonEmptyField(r, [
             'Candidate Name',
@@ -371,13 +426,13 @@ Gradnext Team`;
             'Date',
             'Timestamp',
           ]);
-          if (buildSessionMatchKey(name, dateRaw) === matchKey && typeof r._rowNumber === 'number') {
+          const key = buildSessionMatchKey(name, dateRaw);
+          if (matchedKeys.has(key) && typeof r._rowNumber === 'number') {
             await markCorporateTrackerReportSent(
               corporateTrackerSpreadsheetId,
               corporateTrackerSheetName,
               r._rowNumber
             );
-            break;
           }
         }
       } catch (err: any) {

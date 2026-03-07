@@ -44,6 +44,8 @@ export default function WeekwiseSessions() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
   const [sendingSessionKey, setSendingSessionKey] = useState<string | null>(null);
+  const [selectedSendStudent, setSelectedSendStudent] = useState<string>('');
+  const [selectedSendWeekStart, setSelectedSendWeekStart] = useState<Date | null>(null);
   const [selectedReportCandidates, setSelectedReportCandidates] = useState<string[]>([]);
   const [selectedReportWeekStart, setSelectedReportWeekStart] = useState<Date | null>(null);
   const [isAllStudentsForWeek, setIsAllStudentsForWeek] = useState(false);
@@ -115,6 +117,17 @@ export default function WeekwiseSessions() {
       if (s.studentName) set.add(s.studentName);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [sessions]);
+
+  const studentNameToEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    sessions.forEach(s => {
+      if (s.studentName && s.studentEmail) {
+        const key = s.studentName.trim();
+        if (!map.has(key)) map.set(key, s.studentEmail);
+      }
+    });
+    return map;
   }, [sessions]);
 
   const getProgramWeekNumber = (date: Date): number => {
@@ -822,105 +835,127 @@ export default function WeekwiseSessions() {
         </div>
       )}
 
-      {/* Send reports modal: only sessions where report is generated (from sheet) */}
+      {/* Send reports modal: select student + week, then send the concatenated weekly report */}
       {isSendModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900/70 via-slate-900/40 to-emerald-900/60 backdrop-blur-sm">
-          <div className="bg-[#102525] border border-[#3A5A5A] rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
-            <h2 className="text-xl font-semibold text-white mb-2">Send reports to students</h2>
+          <div className="bg-[#102525] border border-[#3A5A5A] rounded-2xl p-6 w-full max-w-xl shadow-2xl">
+            <h2 className="text-xl font-semibold text-white mb-2">Send report to student</h2>
             <p className="text-xs text-gray-300 mb-4">
-              Only sessions with a generated report (from sheet) are listed. Send manually per session.
+              Select a student and week. The system will search that week folder in Drive, find the concatenated report for that student, and send it once.
             </p>
-            <div className="overflow-y-auto flex-1 min-h-0 rounded-lg border border-[#3A5A5A] bg-[#173232]">
-              {(() => {
-                const withReport = filteredSessions.filter((s) => getReportStatusFromSheet(s).reportGenerated);
-                if (withReport.length === 0) {
-                  return (
-                    <p className="p-4 text-sm text-gray-400">
-                      No sessions with report generated (from sheet). Generate reports first, then refresh.
-                    </p>
-                  );
-                }
-                return (
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-[#1A3636] border-b border-[#3A5A5A]">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs text-gray-300">Student</th>
-                        <th className="px-3 py-2 text-left text-xs text-gray-300">Date</th>
-                        <th className="px-3 py-2 text-left text-xs text-gray-300">Mentor</th>
-                        <th className="px-3 py-2 text-right text-xs text-gray-300">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {withReport.map((session, idx) => {
-                        const { reportSent } = getReportStatusFromSheet(session);
-                        const sessionKey = `${session.studentName}|${session.mentorName}|${session.date}`;
-                        const isSending = sendingSessionKey === sessionKey;
-                        return (
-                          <tr key={`${sessionKey}-${idx}`} className="border-b border-[#3A5A5A]">
-                            <td className="px-3 py-2 text-white">{session.studentName || '—'}</td>
-                            <td className="px-3 py-2 text-gray-300">
-                              {session.date ? format(parseSessionDate(session.date) || new Date(), 'MMM d, yyyy') : session.date}
-                            </td>
-                            <td className="px-3 py-2 text-gray-300">{session.mentorName || '—'}</td>
-                            <td className="px-3 py-2 text-right">
-                              {reportSent ? (
-                                <span className="text-xs text-gray-400">Sent</span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={isSending || !session.studentEmail}
-                                  onClick={async () => {
-                                    if (!session.studentEmail || !session.studentName || !session.date) return;
-                                    setSendingSessionKey(sessionKey);
-                                    setLastReportSummary(null);
-                                    setLastReportErrors([]);
-                                    try {
-                                      const response = await fetch(getApiUrl('api/send-session-report-email'), {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                          menteeEmail: session.studentEmail,
-                                          menteeName: session.studentName,
-                                          mentorName: session.mentorName,
-                                          sessionDate: session.date,
-                                        }),
-                                      });
-                                      const result = await response.json();
-                                      if (response.ok && result.success) {
-                                        setLastReportSummary(result.message || 'Report email sent.');
-                                        await handleRefresh();
-                                      } else {
-                                        setLastReportSummary('Failed to send report email.');
-                                        setLastReportErrors([result?.error || result?.details || 'Unknown error']);
-                                      }
-                                    } catch (e: any) {
-                                      setLastReportSummary('Failed to send report email.');
-                                      setLastReportErrors([e?.message || String(e)]);
-                                    } finally {
-                                      setSendingSessionKey(null);
-                                    }
-                                  }}
-                                  className="px-3 py-1 rounded-lg text-xs font-medium bg-[#F59E0B] hover:bg-[#D97706] text-white disabled:opacity-50"
-                                >
-                                  {isSending ? 'Sending...' : 'Send'}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                );
-              })()}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Student</label>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border text-sm bg-[#1a3434] border-[#3A5A5A] text-white"
+                  value={selectedSendStudent}
+                  onChange={(e) => setSelectedSendStudent(e.target.value)}
+                >
+                  <option value="">Select student</option>
+                  {uniqueCandidateNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                      {studentNameToEmail.get(name) ? ` (${studentNameToEmail.get(name)})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Week</label>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border text-sm bg-[#1a3434] border-[#3A5A5A] text-white"
+                  value={
+                    selectedSendWeekStart
+                      ? startOfWeek(selectedSendWeekStart, { weekStartsOn: 1 }).toISOString()
+                      : ''
+                  }
+                  onChange={(e) => {
+                    if (!e.target.value) {
+                      setSelectedSendWeekStart(null);
+                    } else {
+                      setSelectedSendWeekStart(new Date(e.target.value));
+                    }
+                  }}
+                >
+                  <option value="">Select week</option>
+                  {weekwiseStats.map((stat) => {
+                    const ws = startOfWeek(stat.weekStart, { weekStartsOn: 1 });
+                    return (
+                      <option key={ws.toISOString()} value={ws.toISOString()}>
+                        {stat.weekLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              {lastReportSummary && (
+                <p className={`text-sm ${lastReportErrors.length ? 'text-amber-400' : 'text-emerald-400'}`}>
+                  {lastReportSummary}
+                </p>
+              )}
+              {lastReportErrors.length > 0 && (
+                <ul className="text-xs text-amber-400 list-disc list-inside">
+                  {lastReportErrors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <div className="flex justify-end pt-4 mt-4 border-t border-[#3A5A5A]">
+            <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-[#3A5A5A]">
               <button
                 type="button"
-                onClick={() => setIsSendModalOpen(false)}
+                onClick={() => {
+                  setIsSendModalOpen(false);
+                  setLastReportSummary(null);
+                  setLastReportErrors([]);
+                }}
                 className="px-4 py-2 text-sm rounded-lg bg-[#1a3434] text-gray-300 hover:text-white"
               >
                 Close
+              </button>
+              <button
+                type="button"
+                disabled={
+                  !selectedSendStudent ||
+                  !selectedSendWeekStart ||
+                  !studentNameToEmail.get(selectedSendStudent) ||
+                  isGeneratingReports
+                }
+                onClick={async () => {
+                  const email = studentNameToEmail.get(selectedSendStudent);
+                  if (!email || !selectedSendStudent || !selectedSendWeekStart) return;
+                  setIsGeneratingReports(true);
+                  setLastReportSummary(null);
+                  setLastReportErrors([]);
+                  try {
+                    const weekNumber = getProgramWeekNumber(selectedSendWeekStart);
+                    const response = await fetch(getApiUrl('api/send-session-report-email'), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        menteeEmail: email,
+                        menteeName: selectedSendStudent,
+                        weekNumber,
+                      }),
+                    });
+                    const result = await response.json();
+                    if (response.ok && result.success) {
+                      setLastReportSummary(result.message || 'Report email sent.');
+                      if (!result.alreadySent) await handleRefresh();
+                    } else {
+                      setLastReportSummary('Failed to send report email.');
+                      setLastReportErrors([result?.error || result?.details || 'Unknown error']);
+                    }
+                  } catch (e: any) {
+                    setLastReportSummary('Failed to send report email.');
+                    setLastReportErrors([e?.message || String(e)]);
+                  } finally {
+                    setIsGeneratingReports(false);
+                  }
+                }}
+                className="px-4 py-2 text-sm rounded-lg bg-[#F59E0B] hover:bg-[#D97706] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGeneratingReports ? 'Sending...' : 'Send report'}
               </button>
             </div>
           </div>
@@ -1400,6 +1435,9 @@ export default function WeekwiseSessions() {
                                   disabled={!canSend}
                                   onClick={async () => {
                                     if (!session.studentEmail || !session.studentName || !session.date) return;
+                                    const sessionDate = parseSessionDate(session.date);
+                                    if (!sessionDate) return;
+                                    const weekNum = getProgramWeekNumber(sessionDate);
                                     setIsGeneratingReports(true);
                                     setLastReportSummary(null);
                                     setLastReportErrors([]);
@@ -1410,8 +1448,7 @@ export default function WeekwiseSessions() {
                                         body: JSON.stringify({
                                           menteeEmail: session.studentEmail,
                                           menteeName: session.studentName,
-                                          mentorName: session.mentorName,
-                                          sessionDate: session.date,
+                                          weekNumber: weekNum,
                                         }),
                                       });
                                       const result = await response.json();
