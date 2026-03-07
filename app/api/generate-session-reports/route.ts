@@ -17,8 +17,20 @@ import { google } from 'googleapis';
 
 type SheetsRow = { [key: string]: any };
 
-function isAuthenticated(_request: NextRequest): boolean {
-  // TODO: enhance with real auth when available
+/** Ensure this route is never cached so cron invocations always run. */
+export const dynamic = 'force-dynamic';
+
+function isAuthenticated(request: NextRequest): boolean {
+  // GET from cron: allow if CRON_SECRET is not set, or if Authorization matches
+  if (request.method === 'GET') {
+    const secret = process.env.CRON_SECRET?.trim();
+    if (secret) {
+      const auth = request.headers.get('authorization') || '';
+      return auth === `Bearer ${secret}`;
+    }
+    return true;
+  }
+  // TODO: enhance with real auth when available for POST
   return true;
 }
 
