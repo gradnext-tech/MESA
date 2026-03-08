@@ -37,6 +37,14 @@ function buildSessionMatchKey(menteeName: string, sessionDateRaw: string): strin
   return `${name}|${dateStr}`;
 }
 
+/** Returns true only when the file is for this exact candidate (full name). Avoids "Tanvi Mann" matching "Tanvi Mannapura". */
+function fileNameMatchesCandidate(fileName: string, menteeName: string): boolean {
+  const name = (menteeName || '').trim();
+  if (!name || !fileName) return false;
+  // Report filenames are generated as "{menteeName} - ..." so require exact prefix to avoid substring matches
+  return fileName.startsWith(name + ' - ') || fileName.startsWith(name + ' -');
+}
+
 function getSheetsWriteClient() {
   const credentialsString = process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
   if (!credentialsString) {
@@ -314,7 +322,7 @@ export async function POST(request: NextRequest) {
         const fileCandidates = weekFiles.filter((f) => {
           if (!f.name || !f.name.endsWith('.pdf')) return false;
           return (
-            f.name.includes(rec.menteeName) &&
+            fileNameMatchesCandidate(f.name, rec.menteeName) &&
             (f.name.includes('Week') || f.name.includes('week')) &&
             (f.name.includes('Session Report') || f.name.includes('Session report'))
           );
@@ -492,7 +500,7 @@ export async function POST(request: NextRequest) {
 
     const candidates = (listResp.data.files || []).filter((f) => {
       if (!f.name || !f.name.endsWith('.pdf')) return false;
-      const hasName = f.name.includes(menteeName);
+      const hasName = fileNameMatchesCandidate(f.name, menteeName);
       const hasWeek = f.name.includes('Week') || f.name.includes('week');
       const hasSessionReport =
         f.name.includes('Session Report') || f.name.includes('Session report');
