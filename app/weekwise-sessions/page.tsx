@@ -941,11 +941,16 @@ export default function WeekwiseSessions() {
                 </p>
               )}
               {lastReportErrors.length > 0 && (
-                <ul className="text-xs text-amber-400 list-disc list-inside">
-                  {lastReportErrors.map((err, i) => (
-                    <li key={i}>{err}</li>
-                  ))}
-                </ul>
+                <div className="rounded-lg border border-red-500/50 bg-red-950/30 p-3">
+                  <p className="text-xs font-medium text-red-400 mb-2">
+                    {lastReportErrors.length} error{lastReportErrors.length !== 1 ? 's' : ''}:
+                  </p>
+                  <ul className="text-sm text-red-300 list-disc list-inside space-y-1 max-h-48 overflow-y-auto">
+                    {lastReportErrors.map((err, i) => (
+                      <li key={i} className="break-words">{err}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
             <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-[#3A5A5A]">
@@ -978,6 +983,7 @@ export default function WeekwiseSessions() {
                   setIsGeneratingReports(true);
                   setLastReportSummary(null);
                   setLastReportErrors([]);
+                  setReportLog([]);
                   const weekNumber = getProgramWeekNumber(selectedSendWeekStart);
                   const recipients = toSend
                     .map((name) => ({
@@ -997,17 +1003,26 @@ export default function WeekwiseSessions() {
                         (r: { success: boolean; alreadySent?: boolean }) =>
                           r.success && !r.alreadySent
                       ).length;
-                      const errs = result.results
-                        .filter((r: { success: boolean; error?: string }) => !r.success && r.error)
-                        .map((r: { menteeName: string; error?: string }) => `${r.menteeName}: ${r.error || ''}`);
-                      setLastReportSummary(
-                        sent > 0
-                          ? `Sent ${sent} report(s)${errs.length ? `. ${errs.length} failed.` : '.'}`
-                          : errs.length
-                            ? 'Failed to send reports.'
-                            : 'All selected reports were already sent.'
+                      const failed = result.results.filter(
+                        (r: { success: boolean; error?: string }) => !r.success && r.error
                       );
-                      setLastReportErrors(errs);
+                      const reportNotFound = failed.filter(
+                        (r: { error?: string }) => r.error?.includes?.('Report file not found')
+                      );
+                      const otherErrors = failed.filter(
+                        (r: { error?: string }) => !r.error?.includes?.('Report file not found')
+                      );
+                      setLastReportSummary(`Sent ${sent} report(s).`);
+                      setLastReportErrors(
+                        otherErrors.map(
+                          (r: { menteeName: string; error?: string }) => `${r.menteeName}: ${r.error || ''}`
+                        )
+                      );
+                      setReportLog(
+                        reportNotFound.map(
+                          (r: { menteeName: string; error?: string }) => `${r.menteeName}: ${r.error || ''}`
+                        )
+                      );
                       if (sent > 0) await handleRefresh();
                     } else {
                       setLastReportSummary('Failed to send reports.');
@@ -1086,14 +1101,16 @@ export default function WeekwiseSessions() {
             <p className="text-sm text-gray-100">{lastReportSummary}</p>
           )}
           {lastReportErrors.length > 0 && (
-            <ul className="text-xs text-red-300 list-disc list-inside space-y-1">
-              {lastReportErrors.slice(0, 5).map((err, idx) => (
-                <li key={idx}>{err}</li>
-              ))}
-              {lastReportErrors.length > 5 && (
-                <li>+{lastReportErrors.length - 5} more error(s)</li>
-              )}
-            </ul>
+            <div className="rounded-lg border border-red-500/50 bg-red-950/30 p-3">
+              <p className="text-xs font-medium text-red-400 mb-2">
+                {lastReportErrors.length} error{lastReportErrors.length !== 1 ? 's' : ''}:
+              </p>
+              <ul className="text-sm text-red-300 list-disc list-inside space-y-1 max-h-48 overflow-y-auto">
+                {lastReportErrors.map((err, idx) => (
+                  <li key={idx} className="break-words">{err}</li>
+                ))}
+              </ul>
+            </div>
           )}
           {reportLog.length > 0 && (
             <div className="mt-3">
