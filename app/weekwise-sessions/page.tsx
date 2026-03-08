@@ -979,41 +979,46 @@ export default function WeekwiseSessions() {
                   setLastReportSummary(null);
                   setLastReportErrors([]);
                   const weekNumber = getProgramWeekNumber(selectedSendWeekStart);
-                  let sent = 0;
-                  const errs: string[] = [];
-                  for (const name of toSend) {
-                    const email = studentNameToEmail.get(name);
-                    if (!email) continue;
-                    try {
-                      const response = await fetch(getApiUrl('api/send-session-report-email'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          menteeEmail: email,
-                          menteeName: name,
-                          weekNumber,
-                        }),
-                      });
-                      const result = await response.json();
-                      if (response.ok && result.success && !result.alreadySent) {
-                        sent++;
-                      } else if (!response.ok || !result.success) {
-                        errs.push(`${name}: ${result?.error || result?.details || 'Unknown error'}`);
-                      }
-                    } catch (e: any) {
-                      errs.push(`${name}: ${e?.message || String(e)}`);
+                  const recipients = toSend
+                    .map((name) => ({
+                      menteeName: name,
+                      menteeEmail: studentNameToEmail.get(name) || '',
+                    }))
+                    .filter((r) => r.menteeEmail);
+                  try {
+                    const response = await fetch(getApiUrl('api/send-session-report-email'), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ weekNumber, recipients }),
+                    });
+                    const result = await response.json();
+                    if (response.ok && result.success && Array.isArray(result.results)) {
+                      const sent = result.results.filter(
+                        (r: { success: boolean; alreadySent?: boolean }) =>
+                          r.success && !r.alreadySent
+                      ).length;
+                      const errs = result.results
+                        .filter((r: { success: boolean; error?: string }) => !r.success && r.error)
+                        .map((r: { menteeName: string; error?: string }) => `${r.menteeName}: ${r.error || ''}`);
+                      setLastReportSummary(
+                        sent > 0
+                          ? `Sent ${sent} report(s)${errs.length ? `. ${errs.length} failed.` : '.'}`
+                          : errs.length
+                            ? 'Failed to send reports.'
+                            : 'All selected reports were already sent.'
+                      );
+                      setLastReportErrors(errs);
+                      if (sent > 0) await handleRefresh();
+                    } else {
+                      setLastReportSummary('Failed to send reports.');
+                      setLastReportErrors([result?.error || result?.details || 'Unknown error']);
                     }
+                  } catch (e: any) {
+                    setLastReportSummary('Failed to send reports.');
+                    setLastReportErrors([e?.message || String(e)]);
+                  } finally {
+                    setIsGeneratingReports(false);
                   }
-                  setLastReportSummary(
-                    sent > 0
-                      ? `Sent ${sent} report(s)${errs.length ? `. ${errs.length} failed.` : '.'}`
-                      : errs.length
-                        ? 'Failed to send reports.'
-                        : 'All selected reports were already sent.'
-                  );
-                  setLastReportErrors(errs);
-                  if (sent > 0) await handleRefresh();
-                  setIsGeneratingReports(false);
                 }}
                 className="px-4 py-2 text-sm rounded-lg bg-[#F59E0B] hover:bg-[#D97706] text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
