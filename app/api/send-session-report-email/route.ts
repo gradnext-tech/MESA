@@ -4,7 +4,7 @@ import { ensureWeekFolderForSession, getGoogleDriveClient, computeProgramWeekNum
 import { parseSessionDate } from '@/utils/metricsCalculator';
 import { sendReportEmail } from '@/lib/email';
 import { google } from 'googleapis';
-import { format, startOfWeek, addWeeks } from 'date-fns';
+import { format, startOfWeek, endOfWeek, addWeeks } from 'date-fns';
 
 type SheetsRow = { [key: string]: any };
 
@@ -345,23 +345,26 @@ export async function POST(request: NextRequest) {
     const viewUrl = `https://drive.google.com/file/d/${file.id}/view`;
 
     // Send email via SMTP
-    const weekLabel = useWeekMode
-      ? `Week ${weekNumber}`
-      : format(sessionDateObj, 'MMM d, yyyy');
-    const subject = `Your Gradnext session report - ${weekLabel}`;
+    const weekStart = startOfWeek(sessionDateObj, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(sessionDateObj, { weekStartsOn: 1 });
+    const weekLabel = `Week ${weekNumber} ${format(weekStart, 'MMM d')} to ${format(weekEnd, 'MMM d yyyy')}`;
+    const subject = `Your gradnext session report - ${weekLabel}`;
     const plainText = `Hi ${menteeName},
 
-Your Gradnext session report is ready.
+Your gradnext session report is ready.
+
+Week: ${weekLabel}
 
 You can view it here: ${viewUrl}
 
 Best,
-Gradnext Team`;
+gradnext Team`;
 
     const html = `<p>Hi ${menteeName},</p>
-<p>Your Gradnext session report is ready.</p>
+<p>Your gradnext session report is ready.</p>
+<p><strong>Week:</strong> ${weekLabel}</p>
 <p><a href="${viewUrl}" target="_blank" rel="noopener noreferrer">View your report</a></p>
-<p style="margin-top:16px;">Best,<br/>Gradnext Team</p>`;
+<p style="margin-top:16px;">Best,<br/>gradnext Team</p>`;
 
     await sendReportEmail({
       to: menteeEmail,
