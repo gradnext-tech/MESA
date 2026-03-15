@@ -20,6 +20,8 @@ export interface Session {
   sessionType: string; // Column R from MESA sheet - Session Type (Assessment/Practice)
   comments: string;
   paymentStatus: string;
+  // Optional unique identifier for the session, coming from "Session ID" column when available
+  sessionId?: string;
 }
 
 export interface Mentor {

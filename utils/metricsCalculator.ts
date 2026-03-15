@@ -1689,6 +1689,14 @@ function parseSessionData(sessionData: any[]): Session[] {
       sessionType: String(sessionType || '').trim(), // Column R from MESA sheet
       comments: row['Comments'] || row['comments'] || '',
       paymentStatus: row['Payment Status'] || row['paymentStatus'] || '',
+      // Prefer explicit Session ID column when present so feedback can be matched 1:1 with sessions
+      sessionId:
+        row['Session ID'] ||
+        row['Session Id'] ||
+        row['sessionID'] ||
+        row['sessionId'] ||
+        row['SessionID'] ||
+        '',
     };
   });
 
@@ -1720,6 +1728,8 @@ function mergeFeedbacksWithSessions(
   // Create maps of feedbacks by session key
   const mentorFeedbackMap = new Map<string, any>();
   const candidateFeedbackMap = new Map<string, any>();
+  // Also index candidate feedbacks by explicit Session ID when available
+  const candidateFeedbackBySessionId = new Map<string, any>();
 
   // Process "Mentor Feedback filled by candidates" (student feedback about mentor)
   // Column structure:
@@ -1825,6 +1835,19 @@ function mergeFeedbacksWithSessions(
 
     candidateFeedbacks.forEach((feedback, index) => {
 
+      // Prefer matching by explicit Session ID when present (column \"Session ID\")
+      const rawSessionId =
+        feedback['Session ID'] ||
+        feedback['Session Id'] ||
+        feedback['sessionID'] ||
+        feedback['sessionId'] ||
+        feedback['SessionID'] ||
+        '';
+      const normalizedSessionId = rawSessionId ? String(rawSessionId).trim().toLowerCase() : '';
+      if (normalizedSessionId) {
+        candidateFeedbackBySessionId.set(normalizedSessionId, feedback);
+      }
+
       // Extract date - try multiple variations
       let date = feedback['Session Date'] || feedback['sessionDate'] || feedback['SessionDate'] ||
         feedback['Date'] || feedback['date'] || '';
@@ -1919,11 +1942,23 @@ function mergeFeedbacksWithSessions(
     }
 
     // Try to match candidate feedbacks (mentor feedback about mentee)
-    // Match using: date|mentorName|candidateName (since feedback sheet uses names, not emails)
-    let mentorFeedback = null;
+    // First, use explicit Session ID if both session and feedbacks provide it.
+    let mentorFeedback: any = null;
+
+    const rawSessionId =
+      (session as any).sessionId ||
+      (session as any)['Session ID'] ||
+      (session as any)['Session Id'];
+    const normalizedSessionId = rawSessionId ? String(rawSessionId).trim().toLowerCase() : '';
+
+    if (normalizedSessionId) {
+      mentorFeedback = candidateFeedbackBySessionId.get(normalizedSessionId) || null;
+    }
+
+    // If Session ID match not found, fall back to name/date based strategies
 
     // Strategy 1: Try with normalized date, mentor name, and mentee name
-    if (session.mentorName && session.studentName) {
+    if (!mentorFeedback && session.mentorName && session.studentName) {
       const nameKey = `${sessionDateNormalized}|${session.mentorName.trim().toLowerCase()}|${session.studentName.trim().toLowerCase()}`;
       mentorFeedback = candidateFeedbackMap.get(nameKey);
     }

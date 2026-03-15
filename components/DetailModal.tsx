@@ -73,12 +73,25 @@ export const DetailModal: React.FC<DetailModalProps> = ({
       const mentorName = (session.mentorName || '').trim();
       const candidateName = (session.studentName || name || '').trim();
       const candidateEmail = (session.studentEmail || email || '').trim();
+      const sessionId = (session as any).sessionId || (session as any)['Session ID'] || '';
 
       // Use parseSessionDate which handles MM/DD/YYYY format
       const sessionDateParsed = parseSessionDate(sessionDate);
 
       const matchedFeedback = candidateFeedbacks.find(feedback => {
-        // Try multiple column name variations
+        // Prefer matching by explicit Session ID when present on both sides
+        const feedbackSessionId =
+          (feedback['Session ID'] ||
+            feedback['Session Id'] ||
+            feedback['sessionID'] ||
+            feedback['sessionId'] ||
+            feedback['SessionID'] ||
+            '') as string;
+        if (sessionId && feedbackSessionId && String(feedbackSessionId).trim() === String(sessionId).trim()) {
+          return true;
+        }
+
+        // Otherwise, fall back to strict candidate + mentor + date matching
         const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
         const feedbackMentorName = (feedback['Mentor Name'] || feedback['mentorName'] || feedback['Mentor'] || feedback['mentor'] || '').trim();
         const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim();
