@@ -475,14 +475,29 @@ export default function WeekwiseSessions() {
     const sessionDate = parseSessionDate(session.date || session['Session Date'] || session['Date of Session'] || '');
     const studentName = String(session.studentName || '').trim().toLowerCase();
     const mentorName = String(session.mentorName || '').trim().toLowerCase();
+    const sessionId = String((session as any).sessionId || (session as any)['Session ID'] || '').trim().toLowerCase();
     for (const row of candidateFeedbacks) {
-      const rowName = String(row['Candidate Name'] || row['Mentee Name'] || row['Student Name'] || row['Name'] || '').trim().toLowerCase();
-      const rowMentor = String(row['Mentor Name'] || row['Interviewer'] || row['Mentor'] || '').trim().toLowerCase();
-      const rowDateRaw = row['Session Date'] || row['Date of Session'] || row['date'] || row['Date'] || row['Timestamp'] || '';
-      const rowDate = parseSessionDate(rowDateRaw);
-      if (!rowDate || !sessionDate) continue;
-      const sameDay = rowDate.getFullYear() === sessionDate.getFullYear() && rowDate.getMonth() === sessionDate.getMonth() && rowDate.getDate() === sessionDate.getDate();
-      if (rowName !== studentName || rowMentor !== mentorName || !sameDay) continue;
+      const rowSessionId = String(
+        row['Session ID'] ||
+        row['Session Id'] ||
+        row['sessionID'] ||
+        row['sessionId'] ||
+        row['SessionID'] ||
+        ''
+      ).trim().toLowerCase();
+
+      // Prefer exact Session ID match when available
+      if (sessionId && rowSessionId) {
+        if (sessionId !== rowSessionId) continue;
+      } else {
+        const rowName = String(row['Candidate Name'] || row['Mentee Name'] || row['Student Name'] || row['Name'] || '').trim().toLowerCase();
+        const rowMentor = String(row['Mentor Name'] || row['Interviewer'] || row['Mentor'] || '').trim().toLowerCase();
+        const rowDateRaw = row['Session Date'] || row['Date of Session'] || row['date'] || row['Date'] || row['Timestamp'] || '';
+        const rowDate = parseSessionDate(rowDateRaw);
+        if (!rowDate || !sessionDate) continue;
+        const sameDay = rowDate.getFullYear() === sessionDate.getFullYear() && rowDate.getMonth() === sessionDate.getMonth() && rowDate.getDate() === sessionDate.getDate();
+        if (rowName !== studentName || rowMentor !== mentorName || !sameDay) continue;
+      }
       const genRaw = String(row['is report generated'] ?? row['Report Generated'] ?? row['report generated'] ?? '').trim().toLowerCase();
       const sentRaw = String(row['Report Sent'] ?? row['report sent'] ?? '').trim().toLowerCase();
       const reportGenerated = ['yes', 'true', 'done', 'generated'].includes(genRaw);

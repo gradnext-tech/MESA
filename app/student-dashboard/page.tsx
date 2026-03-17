@@ -1130,15 +1130,39 @@ export default function StudentDashboard() {
                       return null;
                     }
 
-                    // First try candidateFeedbacks
+                    // Prefer the merged mentorFeedback value on the session itself.
+                    // This is already matched via Session ID + date/name logic in metricsCalculator.mergeFeedbacksWithSessions.
+                    if (session.mentorFeedback !== undefined && session.mentorFeedback !== null && session.mentorFeedback !== '') {
+                      const raw = String(session.mentorFeedback);
+                      const num = parseFloat(raw.replace(/[^0-9.]/g, ''));
+                      if (!isNaN(num) && num > 0 && num <= 5) {
+                        return num;
+                      }
+                    }
+
+                    // Fallback to old candidateFeedbacks-based lookup (for legacy data),
+                    // but first try a strict Session ID match when available.
                     if (candidateFeedbacks && candidateFeedbacks.length > 0) {
                       const sessionDate = session.date;
                       const mentorName = (session.mentorName || '').trim();
                       const candidateName = (session.studentName || '').trim();
                       const candidateEmail = (session.studentEmail || '').trim();
                       const sessionDateParsed = parseSessionDate(sessionDate);
+                      const sessionId = (session as any).sessionId || (session as any)['Session ID'] || '';
 
                       const matchedFeedback = candidateFeedbacks.find(feedback => {
+                        // Prefer explicit Session ID when present on both sides
+                        const feedbackSessionId =
+                          (feedback['Session ID'] ||
+                            feedback['Session Id'] ||
+                            feedback['sessionID'] ||
+                            feedback['sessionId'] ||
+                            feedback['SessionID'] ||
+                            '') as string;
+                        if (sessionId && feedbackSessionId && String(feedbackSessionId).trim() === String(sessionId).trim()) {
+                          return true;
+                        }
+
                         const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
                         const feedbackMentorName = (feedback['Mentor Name'] || feedback['mentorName'] || feedback['Mentor'] || feedback['mentor'] || '').trim();
                         const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim();
@@ -1208,8 +1232,21 @@ export default function StudentDashboard() {
                     const candidateName = (session.studentName || '').trim();
                     const candidateEmail = (session.studentEmail || '').trim();
                     const sessionDateParsed = parseSessionDate(sessionDate);
+                    const sessionId = (session as any).sessionId || (session as any)['Session ID'] || '';
 
                     const matchedFeedback = candidateFeedbacks.find(feedback => {
+                      // Prefer explicit Session ID when present on both sides
+                      const feedbackSessionId =
+                        (feedback['Session ID'] ||
+                          feedback['Session Id'] ||
+                          feedback['sessionID'] ||
+                          feedback['sessionId'] ||
+                          feedback['SessionID'] ||
+                          '') as string;
+                      if (sessionId && feedbackSessionId && String(feedbackSessionId).trim() === String(sessionId).trim()) {
+                        return true;
+                      }
+
                       const feedbackDate = feedback['Session Date'] || feedback['sessionDate'] || feedback['Date'] || feedback['date'] || '';
                       const feedbackMentorName = (feedback['Mentor Name'] || feedback['mentorName'] || feedback['Mentor'] || feedback['mentor'] || '').trim();
                       const feedbackCandidateName = (feedback['Candidate Name'] || feedback['candidateName'] || feedback['Candidate'] || feedback['candidate'] || feedback['Mentee Name'] || feedback['menteeName'] || '').trim();
