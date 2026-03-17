@@ -1176,8 +1176,11 @@ export default function StudentDashboard() {
                         const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
 
                         const candidateMatch =
-                          (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
-                          (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail);
+                          (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail) ||
+                          (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName);
+
+                        const mentorMatch =
+                          normalizedMentorName && normalizedFeedbackMentorName && normalizedFeedbackMentorName === normalizedMentorName;
 
                         let dateMatch = false;
                         if (sessionDateParsed && feedbackDate) {
@@ -1190,9 +1193,9 @@ export default function StudentDashboard() {
                           }
                         }
 
-                        // Ensure feedback is matched to the correct session by requiring both
-                        // candidate (mentee) match AND exact session date match.
-                        return candidateMatch && dateMatch;
+                        // Ensure feedback is matched to the correct session by requiring:
+                        // candidate match + mentor match + exact session date match.
+                        return candidateMatch && mentorMatch && dateMatch;
                       });
 
                       if (matchedFeedback) {
@@ -1260,8 +1263,11 @@ export default function StudentDashboard() {
                       const normalizedFeedbackMentorName = feedbackMentorName.toLowerCase().trim();
 
                       const candidateMatch =
-                        (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName) ||
-                        (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail);
+                        (normalizedCandidateEmail && normalizedFeedbackCandidateEmail && normalizedFeedbackCandidateEmail === normalizedCandidateEmail) ||
+                        (normalizedCandidateName && normalizedFeedbackCandidateName && normalizedFeedbackCandidateName === normalizedCandidateName);
+
+                      const mentorMatch =
+                        normalizedMentorName && normalizedFeedbackMentorName && normalizedFeedbackMentorName === normalizedMentorName;
 
                       let dateMatch = false;
                       if (sessionDateParsed && feedbackDate) {
@@ -1274,9 +1280,9 @@ export default function StudentDashboard() {
                         }
                       }
 
-                      // Ensure feedback is matched to the correct session by requiring both
-                      // candidate (mentee) match AND exact session date match.
-                      return candidateMatch && dateMatch;
+                      // Ensure feedback is matched to the correct session by requiring:
+                      // candidate match + mentor match + exact session date match.
+                      return candidateMatch && mentorMatch && dateMatch;
                     });
 
                     return matchedFeedback || null;
